@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { BALL_SHEET_CELL, BALL_SHEET_PAD, renderBallSheet, renderTable } from '../tools/scene-render';
+import { OUTER_L, OUTER_W } from '../src/render/scene';
 import { newRack } from '../src/core/physics';
+
+/** Same fit the scene uses, so pixel probes land where the geometry is. */
+const fit = (w: number, h: number): { scale: number; cx: number; cy: number } => ({
+  scale: Math.min((w * 0.95) / OUTER_L, (h * 0.95) / OUTER_W),
+  cx: w / 2,
+  cy: h / 2,
+});
 
 const HUE: Record<number, [number, number, number]> = {
   1: [0xf2, 0xc4, 0x00],
@@ -45,16 +53,16 @@ describe('table image', () => {
 
   it('has a dark hole at the corner pocket', () => {
     // corner pocket sits at world (-1.27, -0.635)
-    const scale = Math.min((1600 * 0.95) / 2.73, (820 * 0.95) / (1.27 + 0.19));
-    const sx = 800 - 1.27 * scale;
-    const sy = 410 - 0.635 * scale;
+    const { scale, cx, cy } = fit(1600, 820);
+    const sx = cx - 1.27 * scale;
+    const sy = cy - 0.635 * scale;
     const [r, g, b] = at(px, sx, sy);
     expect(r + g + b).toBeLessThan(70);
   });
 
   it('draws the cue ball white', () => {
-    const scale = Math.min((1600 * 0.95) / 2.73, (820 * 0.95) / (1.27 + 0.19));
-    const [r, g, b] = at(px, 800 - 0.635 * scale, 410);
+    const { scale, cx, cy } = fit(1600, 820);
+    const [r, g, b] = at(px, cx - 0.635 * scale, cy);
     expect(r).toBeGreaterThan(180);
     expect(g).toBeGreaterThan(180);
     expect(b).toBeGreaterThan(180);

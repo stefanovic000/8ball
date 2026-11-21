@@ -34,11 +34,11 @@ export const HALF_W = TABLE_W / 2;
 export const RAIL_H = 0.27 * BALL_R;
 
 /** Cushion stops this far from a corner pocket. */
-export const CORNER_GAP = 0.085;
+export const CORNER_GAP = 0.105;
 /** Cushion stops this far either side of a side pocket. */
-export const SIDE_GAP = 0.075;
-/** Radius of the little rounded jaw at the end of each cushion. */
-export const JAW_R = 0.013;
+export const SIDE_GAP = 0.082;
+/** Radius of the rounded jaw at the end of each cushion. Sharp, like a cut. */
+export const JAW_R = 0.004;
 
 /** Top of the power bar. A firm shot, not a pro break. */
 export const MAX_CUE_SPEED = 5.2;

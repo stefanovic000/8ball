@@ -3,7 +3,9 @@ import type { Ball } from '../core/physics';
 import { TAU, qRotate, type V2, type V3 } from '../core/math';
 import { CUSHIONS, POCKETS } from '../core/table';
 
-export const RAIL = 0.095;
+export const RAIL = 0.128;
+/** How far the cushion sticks out past the playing edge. */
+export const CUSHION_DEPTH = 0.052;
 export const OUTER_L = TABLE_L + 2 * RAIL;
 export const OUTER_W = TABLE_W + 2 * RAIL;
 
@@ -140,10 +142,11 @@ function buildTable(): HTMLCanvasElement {
     g.save();
     g.translate(cu.ax, cu.ay);
     g.rotate(ang);
-    const depth = 0.038;
-    // The cushion is drawn from the nose backwards along the normal, so the
-    // gradient has to run the same way or it clamps to one flat colour.
-    const sgn = cu.ny !== 0 ? Math.sign(cu.ny) : Math.sign(cu.nx);
+    const depth = CUSHION_DEPTH;
+    // The cushion sits *outside* the playing edge, with its nose on the line
+    // the ball actually bounces off. Drawing it inside the cloth makes the ball
+    // look like it is sinking into the rail before it rebounds.
+    const sgn = -(cu.ny !== 0 ? Math.sign(cu.ny) : Math.sign(cu.nx));
     const d1 = depth * sgn;
     const grad = g.createLinearGradient(0, 0, 0, d1);
     grad.addColorStop(0, '#318a68');
@@ -188,12 +191,12 @@ function buildTable(): HTMLCanvasElement {
   });
 
   // --- sights ---
-  g.fillStyle = 'rgba(228,214,180,0.55)';
-  const dOff = 0.012;
+  g.fillStyle = 'rgba(228,214,180,0.6)';
+  const dOff = CUSHION_DEPTH + 0.042;
   for (let i = 1; i <= 7; i++) {
     if (i === 4) continue; // side pocket
     const x = -HALF_L + (TABLE_L * i) / 8;
-    for (const y of [HALF_W + dOff + 0.024, -HALF_W - dOff - 0.024]) {
+    for (const y of [HALF_W + dOff, -HALF_W - dOff]) {
       g.beginPath();
       g.arc(x, y, 0.0055, 0, TAU);
       g.fill();
@@ -201,7 +204,7 @@ function buildTable(): HTMLCanvasElement {
   }
   for (let i = 1; i <= 3; i++) {
     const y = -HALF_W + (TABLE_W * i) / 4;
-    for (const x of [HALF_L + dOff + 0.024, -HALF_L - dOff - 0.024]) {
+    for (const x of [HALF_L + dOff, -HALF_L - dOff]) {
       g.beginPath();
       g.arc(x, y, 0.0055, 0, TAU);
       g.fill();
