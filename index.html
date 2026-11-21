@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>8ball</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="table"></canvas>
+
+      <div id="topbar">
+        <div id="players"></div>
+        <div id="room" class="hidden"></div>
+      </div>
+
+      <div id="controls">
+        <button id="rotate" class="icon" title="Rotate table (R)" aria-label="Rotate table">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <rect x="6" y="3" width="12" height="18" rx="1.5" />
+            <path d="M3 8a10 10 0 0 1 5-4M21 16a10 10 0 0 1-5 4" />
+          </svg>
+        </button>
+      </div>
+
+      <div id="hint" class="hidden"></div>
+      <div id="toast" class="hidden"></div>
+
+      <div id="power"><div id="powerfill"></div></div>
+
+      <div id="spinwrap">
+        <canvas id="spin" width="132" height="132"></canvas>
+        <div id="spinlabel">neutral</div>
+      </div>
+    </div>
+
+    <!-- Setup screen -->
+    <div id="setup" class="screen">
+      <div class="panel">
+        <h1>8<span>ball</span></h1>
+        <p class="lede">
+          A small pool simulator. Full spin, squirt, throw and real pocket jaws.
+          No aim assist.
+        </p>
+
+        <div class="group">
+          <label>Name</label>
+          <div class="row">
+            <input id="name" placeholder="Your name" maxlength="16" autocomplete="off" spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="group">
+          <label>Mode</label>
+          <div class="choices" id="mode">
+            <button data-v="practice" class="on">Practice</button>
+            <button data-v="online">Online</button>
+          </div>
+          <p class="note" id="mode-note">Always your turn. Free ball in hand.</p>
+        </div>
+
+        <div class="group" id="rulesset">
+          <label>Rules</label>
+          <div class="row">
+            <span>Shot clock</span>
+            <div class="choices small" id="clock">
+              <button data-v="20">20s</button>
+              <button data-v="30" class="on">30s</button>
+              <button data-v="45">45s</button>
+              <button data-v="0">off</button>
+            </div>
+          </div>
+          <div class="row">
+            <span>Called pockets <em class="soon">soon</em></span>
+            <div class="choices small" id="called">
+              <button data-v="0" class="on" disabled>off</button>
+              <button data-v="1" disabled>on</button>
+            </div>
+          </div>
+          <div class="row">
+            <span>Ball in hand</span>
+            <div class="choices small" id="bih">
+              <button data-v="anywhere" class="on">anywhere</button>
+              <button data-v="behind">behind line</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="group" id="joinrow">
+          <label>Room</label>
+          <div class="row">
+            <input id="code" placeholder="CODE" maxlength="6" autocomplete="off" spellcheck="false" />
+            <button id="joincode">Join</button>
+            <button id="create" class="primary">Create room</button>
+          </div>
+        </div>
+
+        <button id="start" class="primary wide">Start</button>
+        <p class="note dim" id="status"></p>
+      </div>
+    </div>
+
+    <div id="gameover" class="screen hidden">
+      <div class="panel narrow">
+        <h2 id="gtitle">Game over</h2>
+        <p id="gsub" class="note"></p>
+        <button id="again" class="primary wide">Play again</button>
+        <button id="tomenu" class="wide">Back to menu</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

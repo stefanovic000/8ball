@@ -1,0 +1,29 @@
+{
+  "name": "8ball",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Top-down 8-ball pool with a small deterministic physics engine.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "server": "tsx server/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "shot": "tsx tools/shot.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^0.1.65",
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "playwright-core": "^1.65.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  }
+}
