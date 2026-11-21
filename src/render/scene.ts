@@ -487,7 +487,7 @@ export function drawBall(
       ctx.translate(px2, py2);
       ctx.rotate(Math.atan2(up.y, up.x) - Math.PI / 2);
 
-      const pr = R * (detail >= 2 ? 0.44 : 0.5) * shrink;
+      const pr = R * (detail >= 2 ? 0.48 : 0.52) * shrink;
       ctx.fillStyle = '#f8f6f0';
       ctx.beginPath();
       ctx.ellipse(0, 0, pr, pr * (0.62 + 0.38 * n.z), 0, 0, TAU);
@@ -495,33 +495,30 @@ export function drawBall(
 
       const label = String(b.id);
       const two = label.length > 1;
-      // Sized so the cap height is about 70% of the patch, which is as big as
-      // the numeral can get without spilling onto the ball.
-      const fs = R * (two ? (detail >= 2 ? 0.76 : 0.64) : detail >= 2 ? 0.88 : 0.8) * shrink;
-      ctx.fillStyle = '#131313';
-      ctx.strokeStyle = '#131313';
-      ctx.lineJoin = 'round';
-      ctx.font = `900 ${fs}px "Segoe UI", ui-sans-serif, system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      // Real balls have a numeral about a fifth of the ball high. Going much
+      // bigger than that stops looking like a pool ball at all.
+      const fs = R * (two ? (detail >= 2 ? 0.58 : 0.52) : detail >= 2 ? 0.68 : 0.62) * shrink;
 
-      // Two digits get squeezed a touch so 10..15 stay inside the patch.
+      // The font is set at a normal pixel size and the canvas is scaled to
+      // match. Setting a 0.02px font and letting the world transform blow it
+      // up does not survive Skia's text layout.
+      const TEXT = 64;
+      const k = fs / TEXT;
       ctx.save();
-      if (two) ctx.scale(0.9, 1);
-      ctx.fillText(label, 0, fs * 0.03);
+      ctx.scale(two ? k * 0.94 : k, k);
+      ctx.fillStyle = '#131313';
+      ctx.font = `800 ${TEXT}px "Segoe UI", ui-sans-serif, system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      // Digits run from about -0.72em to +0.02em about the baseline, so the
+      // ink centre sits 0.35em below it.
+      ctx.fillText(label, 0, TEXT * 0.35);
       ctx.restore();
-
-      // A hair of stroke keeps the glyph from turning to mush, but only when
-      // there are enough pixels to spend on it.
-      if (detail >= 2) {
-        ctx.lineWidth = fs * 0.04;
-        ctx.strokeText(label, 0, 0);
-      }
 
       // 6 and 9 get the little underscore so they are never ambiguous
       if (b.id === 6 || b.id === 9) {
-        const tw = ctx.measureText(label).width;
-        ctx.fillRect(-tw * 0.42, fs * 0.44, tw * 0.84, fs * 0.09);
+        ctx.fillStyle = '#131313';
+        ctx.fillRect(-fs * 0.28, fs * 0.44, fs * 0.56, fs * 0.09);
       }
       ctx.restore();
     }
