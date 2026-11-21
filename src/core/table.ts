@@ -67,12 +67,33 @@ export const JAWS: V2[] = CUSHIONS.flatMap((c) => [
 export const JAW_RADIUS = JAW_R;
 
 /**
- * A ball is pocketed when its centre leaves the playing rectangle. It can only
- * do that through a gap, because the cushions block everywhere else, so this
- * one test covers all six pockets without any special casing.
+ * Which pocket the point is in, or null.
+ *
+ * The test is the mouth the two cushions actually leave, not the edge of the
+ * playing rectangle: a corner pocket opens along the diagonal between its two
+ * cushion ends, and a side pocket opens along the rail line between its two
+ * ends. Drawn and simulated the same way, so a ball disappears exactly where
+ * it looks like it should.
+ */
+export function pocketAt(x: number, y: number): number | null {
+  const sx = x < 0 ? -1 : 1;
+  const sy = y < 0 ? -1 : 1;
+  // The corner mouth is the line sx*x + sy*y = HALF_L + HALF_W - CORNER_GAP.
+  if (sx * x + sy * y > HALF_L + HALF_W - CORNER_GAP) {
+    return sy > 0 ? (sx > 0 ? 3 : 2) : sx > 0 ? 1 : 0;
+  }
+  if (Math.abs(x) < SIDE_GAP && Math.abs(y) > HALF_W) {
+    return y > 0 ? 5 : 4;
+  }
+  return null;
+}
+
+/**
+ * A ball is pocketed when its centre passes the mouth of a pocket. It can only
+ * get there through a gap, because the cushions block everywhere else.
  */
 export function leftTheTable(x: number, y: number): boolean {
-  return Math.abs(x) > HALF_L || Math.abs(y) > HALF_W;
+  return pocketAt(x, y) !== null;
 }
 
 export function inPlayArea(x: number, y: number, r: number): boolean {

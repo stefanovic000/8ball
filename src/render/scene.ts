@@ -1,4 +1,4 @@
-import { BALL_R, HALF_L, HALF_W, TABLE_L, TABLE_W } from '../core/constants';
+import { BALL_R, CORNER_GAP, HALF_L, HALF_W, SIDE_GAP, TABLE_L, TABLE_W } from '../core/constants';
 import type { Ball } from '../core/physics';
 import { TAU, qRotate, type V2, type V3 } from '../core/math';
 import { CUSHIONS, POCKETS } from '../core/table';
@@ -171,21 +171,35 @@ function buildTable(): HTMLCanvasElement {
   }
 
   // --- pockets ---
+  // The mouth is the gap between the cushion ends, so the hole is drawn
+  // starting from that same mouth. What you see is what the ball falls into.
   POCKETS.forEach((p, i) => {
     const corner = i < 4;
-    const r = corner ? 0.070 : 0.060;
+    const r = corner ? 0.060 : 0.052;
+    const sx = Math.sign(p.x);
+    const sy = Math.sign(p.y);
 
     g.fillStyle = '#04070a';
     g.beginPath();
-    g.arc(p.x, p.y, r, 0, TAU);
+    if (corner) {
+      // wedge from the two cushion ends out past the corner, rounded off
+      g.moveTo(p.x - sx * CORNER_GAP, p.y);
+      g.lineTo(p.x + sx * 0.052, p.y);
+      g.lineTo(p.x + sx * 0.052, p.y + sy * 0.052);
+      g.lineTo(p.x, p.y + sy * 0.052);
+      g.lineTo(p.x, p.y - sy * CORNER_GAP);
+      g.closePath();
+    } else {
+      g.moveTo(p.x - SIDE_GAP, p.y);
+      g.lineTo(p.x - SIDE_GAP, p.y + sy * 0.052);
+      g.lineTo(p.x + SIDE_GAP, p.y + sy * 0.052);
+      g.lineTo(p.x + SIDE_GAP, p.y);
+      g.closePath();
+    }
     g.fill();
 
-    const lip = g.createRadialGradient(p.x, p.y, r * 0.5, p.x, p.y, r);
-    lip.addColorStop(0, 'rgba(0,0,0,0)');
-    lip.addColorStop(1, 'rgba(0,0,0,0.7)');
-    g.fillStyle = lip;
     g.beginPath();
-    g.arc(p.x, p.y, r, 0, TAU);
+    g.arc(corner ? p.x + sx * 0.045 : p.x, corner ? p.y + sy * 0.045 : p.y + sy * 0.03, r, 0, TAU);
     g.fill();
   });
 

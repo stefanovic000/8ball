@@ -132,6 +132,17 @@ describe('simulation', () => {
     expect(res.balls[0].p.x).toBeLessThan(HALF_L);
   });
 
+  it('stops on the cushion line, never inside it', () => {
+    // Fired hard along y: the ball's centre may reach the rail line minus its
+    // radius and not one millimetre further, which is where the cushion is
+    // drawn.
+    const res = shoot([cue(-0.6)], { aim: Math.PI / 2, power: 1, spin: { x: 0, y: 0 } });
+    let maxY = -Infinity;
+    for (const f of res.frames) maxY = Math.max(maxY, f.data[1]);
+    expect(maxY).toBeLessThanOrEqual(HALF_W - BALL_R + 1e-4);
+    expect(maxY).toBeGreaterThan(HALF_W - BALL_R - 0.002);
+  });
+
   it('drops a ball into a corner pocket', () => {
     const st = makeBall(1, 1.05, 0.42);
     const res = shoot(
