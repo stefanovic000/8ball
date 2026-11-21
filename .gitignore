@@ -5,3 +5,4 @@ dist/
 preview.png
 tmp/
 .vite/
+threejs-models/
