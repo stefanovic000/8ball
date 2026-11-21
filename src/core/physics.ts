@@ -88,17 +88,22 @@ export const makeBall = (id: number, x: number, y: number): Ball => ({
   pocketed: false,
 });
 
-const RACK_SPACING = 2 * BALL_R + 0.004;
+/**
+ * Balls are racked essentially touching: 0.8mm apart, which is under half a
+ * pixel on screen and reads as a tight rack.
+ */
+const RACK_SPACING = 2 * BALL_R + 0.0008;
 
 /**
  * A real rack is never perfectly tight. With a mathematically perfect triangle
  * the break behaves like a Newton's cradle: the impulse runs straight through
- * and only the back of the rack moves. A few tenths of a millimetre of
- * deterministic jitter is enough to make the pack scatter like a real one.
+ * and only the back of the rack moves. Under a millimetre of deterministic
+ * jitter is enough to make the pack scatter, and still leaves every pair of
+ * balls clear of each other.
  */
 function rackJitter(seed: number): number {
   const x = Math.sin(seed * 12.9898) * 43758.5453;
-  return (x - Math.floor(x) - 0.5) * 0.0035;
+  return (x - Math.floor(x) - 0.5) * 0.0016;
 }
 
 /**
