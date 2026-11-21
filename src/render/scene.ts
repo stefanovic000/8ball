@@ -301,7 +301,8 @@ export class Scene {
     if (view.showAim && !view.placing) this.drawAim(view);
     for (const b of view.balls) {
       if (b.pocketed) continue;
-      drawBall(ctx, b, view.showAim && b.id === view.cueBallId, BALL_R * this.scale);
+      // The cue ball never has a number, whatever the aim state is.
+      drawBall(ctx, b, b.id === view.cueBallId, BALL_R * this.scale);
     }
     if (view.placing && view.hover) drawPlacement(ctx, view.hover);
 
@@ -420,10 +421,10 @@ export function drawBall(
   ctx.fillRect(x - R, y - R, R * 2, R * 2);
 
   if (stripe && !isCue) {
-    // The patch sits on top of the band, so the band has to run well past it
-    // or the ball reads as a solid with a white spot.
+    // Narrow enough that the white poles read clearly. A band that reaches the
+    // top and bottom of the ball just looks like a solid.
     ctx.fillStyle = hue;
-    ctx.fillRect(x - R, y - R * 0.92, R * 2, R * 1.84);
+    ctx.fillRect(x - R, y - R * 0.67, R * 2, R * 1.34);
   }
 
   // Shading and highlight go down before the number. Shading the patch as
@@ -469,7 +470,6 @@ export function drawBall(
   }
 
   if (!isCue) {
-    // number patch, projected through the orientation
     const n: V3 = qRotate(b.q, { x: 0, y: 0, z: 1 });
     if (detail === 0) {
       // Too small for a numeral. A plain dot still reads as a marked ball.
@@ -477,48 +477,49 @@ export function drawBall(
       ctx.beginPath();
       ctx.arc(x, y, R * 0.32, 0, TAU);
       ctx.fill();
-    } else if (n.z > 0.02) {
-      const up: V3 = qRotate(b.q, { x: 0, y: 1, z: 0 });
-      const px2 = x + n.x * R * 0.68;
-      const py2 = y + n.y * R * 0.68;
-      const shrink = Math.sqrt(n.z);
+    } else if (n.z > 0.06) {
+      // The number is a circular decal painted onto the sphere. Projecting it
+      // properly is what makes a rolling ball look like a ball: the patch turns
+      // into an ellipse as it rolls away from the camera and the digit is
+      // squashed by exactly the same amount. Drawn as a flat sticker that
+      // merely slides and spins, it looks wrong.
+      const u: V3 = qRotate(b.q, { x: 0, y: 1, z: 0 });
+      const v: V3 = qRotate(b.q, { x: 1, y: 0, z: 0 });
+      const capR = (detail >= 2 ? 0.44 : 0.5) * R;
+      const alpha = Math.asin(Math.min(1, capR / R));
+      const s = R * Math.sin(alpha);
+      const ex = x + n.x * R * Math.cos(alpha);
+      const ey = y + n.y * R * Math.cos(alpha);
 
       ctx.save();
-      ctx.translate(px2, py2);
-      ctx.rotate(Math.atan2(up.y, up.x) - Math.PI / 2);
+      // Local space: a unit circle is the decal, +x is the ball's right and
+      // +y its up, both already foreshortened by the projection.
+      ctx.transform(s * v.x, s * v.y, s * u.x, s * u.y, ex, ey);
 
-      const pr = R * (detail >= 2 ? 0.48 : 0.52) * shrink;
       ctx.fillStyle = '#f8f6f0';
       ctx.beginPath();
-      ctx.ellipse(0, 0, pr, pr * (0.62 + 0.38 * n.z), 0, 0, TAU);
+      ctx.arc(0, 0, 1, 0, TAU);
       ctx.fill();
 
       const label = String(b.id);
       const two = label.length > 1;
-      // Real balls have a numeral about a fifth of the ball high. Going much
-      // bigger than that stops looking like a pool ball at all.
-      const fs = R * (two ? (detail >= 2 ? 0.58 : 0.52) : detail >= 2 ? 0.68 : 0.62) * shrink;
-
-      // The font is set at a normal pixel size and the canvas is scaled to
-      // match. Setting a 0.02px font and letting the world transform blow it
-      // up does not survive Skia's text layout.
       const TEXT = 64;
-      const k = fs / TEXT;
-      ctx.save();
-      ctx.scale(two ? k * 0.94 : k, k);
+      const fontPx = 46;
+      // Scale down instead of setting a tiny font: sub-pixel font sizes do not
+      // survive Skia's text layout.
+      ctx.scale(1 / TEXT, 1 / TEXT);
       ctx.fillStyle = '#131313';
-      ctx.font = `800 ${TEXT}px "Segoe UI", ui-sans-serif, system-ui, sans-serif`;
+      ctx.font = `800 ${fontPx}px "Segoe UI", ui-sans-serif, system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'alphabetic';
-      // Digits run from about -0.72em to +0.02em about the baseline, so the
-      // ink centre sits 0.35em below it.
-      ctx.fillText(label, 0, TEXT * 0.35);
+      ctx.save();
+      if (two) ctx.scale(0.92, 1);
+      ctx.fillText(label, 0, fontPx * 0.35);
       ctx.restore();
 
       // 6 and 9 get the little underscore so they are never ambiguous
       if (b.id === 6 || b.id === 9) {
-        ctx.fillStyle = '#131313';
-        ctx.fillRect(-fs * 0.28, fs * 0.44, fs * 0.56, fs * 0.09);
+        ctx.fillRect(-fontPx * 0.28, fontPx * 0.44, fontPx * 0.56, fontPx * 0.09);
       }
       ctx.restore();
     }

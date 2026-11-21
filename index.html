@@ -27,7 +27,13 @@
       <div id="hint" class="hidden"></div>
       <div id="toast" class="hidden"></div>
 
-      <div id="power"><div id="powerfill"></div></div>
+      <div id="power" role="slider" aria-label="Shot power" aria-valuemin="0" aria-valuemax="100" tabindex="0">
+        <div id="powertrack">
+          <div id="powerfill"></div>
+          <div id="powerknob"></div>
+        </div>
+        <div id="powerlabel">55%</div>
+      </div>
 
       <div id="spinwrap">
         <canvas id="spin" width="132" height="132"></canvas>

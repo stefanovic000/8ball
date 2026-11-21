@@ -66,13 +66,18 @@ export class App {
     }
     this.el.power = document.getElementById('power')!;
     this.el.powerFill = document.getElementById('powerfill')!;
+    this.el.powerKnob = document.getElementById('powerknob')!;
+    this.el.powerLabel = document.getElementById('powerlabel')!;
 
     this.wireSetup();
     this.wireInput();
+    this.wirePower();
     this.updateSpinLabel();
     this.setRotated(window.innerWidth < window.innerHeight);
 
     window.addEventListener('resize', () => this.scene.resize());
+    // Handy for the headless browser checks; harmless in production.
+    (window as unknown as Record<string, unknown>).__game = this;
     requestAnimationFrame((t) => {
       this.last = t;
       this.loop(t);
@@ -345,6 +350,43 @@ export class App {
 
   // ----------------------------------------------------------------- input
 
+  private wirePower(): void {
+    const el = this.el.power!;
+    const track = document.getElementById('powertrack')!;
+    let dragging = false;
+
+    const apply = (clientY: number): void => {
+      const r = track.getBoundingClientRect();
+      if (r.height <= 0) return;
+      this.power = clamp(1 - (clientY - r.top) / r.height, 0.05, 1);
+    };
+
+    el.addEventListener('pointerdown', (e) => {
+      dragging = true;
+      el.setPointerCapture(e.pointerId);
+      apply(e.clientY);
+      e.preventDefault();
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (dragging) apply(e.clientY);
+    });
+    el.addEventListener('pointerup', (e) => {
+      dragging = false;
+      el.releasePointerCapture(e.pointerId);
+    });
+    el.addEventListener('pointercancel', () => {
+      dragging = false;
+    });
+    el.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        this.power = clamp(this.power - e.deltaY * 0.0012, 0.05, 1);
+      },
+      { passive: false },
+    );
+  }
+
   private wireInput(): void {
     const canvas = document.getElementById('table') as HTMLCanvasElement;
     let downAt: { x: number; y: number } | null = null;
@@ -494,6 +536,7 @@ export class App {
     const done = this.afterPlay;
     this.afterPlay = null;
     done?.();
+    this.spin.set({ x: 0, y: 0 });
     if (this.pending) {
       const s = this.pending;
       this.pending = null;
@@ -573,6 +616,9 @@ export class App {
 
     const pct = Math.round(this.power * 100);
     this.el.powerFill!.style.height = `${pct}%`;
+    this.el.powerKnob!.style.bottom = `${pct}%`;
+    this.el.powerLabel!.textContent = `${pct}%`;
+    this.el.power!.setAttribute('aria-valuenow', String(pct));
   }
 
   private updateHud(now: number): void {

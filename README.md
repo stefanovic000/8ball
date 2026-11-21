@@ -32,7 +32,7 @@ Node 20+.
 | | |
 |---|---|
 | Aim | move the mouse |
-| Power | mouse wheel, or ↑ / ↓ |
+| Power | drag the bar on the right, or ↑ / ↓ |
 | Fine aim | ← / → (hold Shift for 0.1°) |
 | Spin | drag the little ball in the bottom right; double click to reset |
 | Shoot | click, or Space |

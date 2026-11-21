@@ -172,7 +172,7 @@ Straight off a 9ft table with 2¼" balls.
 | cushion restitution | 0.82 | |
 | ball–ball friction | 0.06 | drives throw |
 | cushion friction | 0.20 | drives english |
-| max cue speed | 8 m/s | firm break |
+| max cue speed | 5.2 m/s | firm shot, not a pro break |
 
 ## Known gaps
 
@@ -187,3 +187,7 @@ Straight off a 9ft table with 2¼" balls.
   They do rattle balls out, which is the behaviour that matters.
 - **No jump shots.** Needs cue elevation in the input model and a vertical
   dimension in the simulation.
+- **The stripe on a striped ball does not tumble.** The number is projected
+  properly, so it rolls over the top of the ball and squashes as it goes, but
+  the colour band is drawn as a flat horizontal strip. Doing it correctly needs
+  the band to be clipped per pixel against the sphere.

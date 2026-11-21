@@ -40,7 +40,8 @@ export const SIDE_GAP = 0.075;
 /** Radius of the little rounded jaw at the end of each cushion. */
 export const JAW_R = 0.013;
 
-export const MAX_CUE_SPEED = 8.0; // m/s, roughly a firm break
+/** Top of the power bar. A firm shot, not a pro break. */
+export const MAX_CUE_SPEED = 5.2;
 
 /** Sidespin makes the cue ball leave the tip at an angle. Radians per R of offset. */
 export const SQUIRT_PER_R = 0.10; // ~0.05 rad / 2.9 deg at maximum offset

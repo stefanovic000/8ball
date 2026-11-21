@@ -174,14 +174,26 @@ button.wide {
 
 #power {
   position: absolute;
-  right: 26px;
+  right: 14px;
   top: 50%;
   transform: translateY(-50%);
-  width: 4px;
-  height: 34vh;
-  background: #ffffff10;
+  width: 40px;
+  height: 42vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  touch-action: none;
+  cursor: ns-resize;
+  user-select: none;
+}
+
+#powertrack {
+  position: relative;
+  width: 8px;
+  flex: 1;
+  background: #ffffff14;
   border-radius: 999px;
-  overflow: hidden;
 }
 
 #powerfill {
@@ -190,8 +202,28 @@ button.wide {
   left: 0;
   right: 0;
   height: 55%;
+  border-radius: 999px;
   background: linear-gradient(to top, #2f9a70, #9fe3c1);
-  transition: height 0.08s linear;
+}
+
+#powerknob {
+  position: absolute;
+  left: 50%;
+  bottom: 55%;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  margin-bottom: -9px;
+  border-radius: 50%;
+  background: #f2f0ea;
+  box-shadow: 0 1px 6px #00000080;
+  pointer-events: none;
+}
+
+#powerlabel {
+  font: 600 10px/1 ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  color: var(--dim);
 }
 
 #spinwrap {

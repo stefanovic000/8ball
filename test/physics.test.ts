@@ -40,9 +40,10 @@ describe('rack', () => {
 describe('cue strike', () => {
   it('sends a centre hit down the aim line', () => {
     const res = shoot([cue(-0.5)], { aim: 0, power: 0.5, spin: { x: 0, y: 0 } });
-    const b = res.balls[0];
-    expect(b.p.x).toBeGreaterThan(-0.5);
-    expect(Math.abs(b.p.y)).toBeLessThan(0.02);
+    // A fiftieth of a second in, before it can reach a cushion and come back.
+    const f = res.frames[Math.round(0.05 * 240)];
+    expect(f.data[0]).toBeGreaterThan(-0.45);
+    expect(Math.abs(f.data[1])).toBeLessThan(0.02);
   });
 
   it('gives a centre hit a little more than rolling spin', () => {
@@ -77,10 +78,14 @@ describe('cue strike', () => {
   });
 
   it('deflects the cue ball away from the side the tip hits', () => {
-    const straight = shoot([cue(-0.5)], { aim: 0, power: 0.5, spin: { x: 0, y: 0 } });
-    const right = shoot([cue(-0.5)], { aim: 0, power: 0.5, spin: { x: 0.4, y: 0 } });
+    // Squirt is an initial direction change, so measure it while the ball is
+    // still travelling rather than after it has bounced around the table.
+    const drift = (sx: number): number => {
+      const res = shoot([cue(-0.5)], { aim: 0, power: 0.6, spin: { x: sx, y: 0 } });
+      return res.frames[Math.round(0.08 * 240)].data[1];
+    };
     // Right english pushes the ball to the left, so it ends up at lower y.
-    expect(right.balls[0].p.y).toBeLessThan(straight.balls[0].p.y - 0.001);
+    expect(drift(0.4)).toBeLessThan(drift(0) - 0.001);
   });
 
   it('refuses to apply more spin than the miscue limit', () => {
