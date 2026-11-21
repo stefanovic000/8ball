@@ -187,7 +187,17 @@ Straight off a 9ft table with 2¼" balls.
   They do rattle balls out, which is the behaviour that matters.
 - **No jump shots.** Needs cue elevation in the input model and a vertical
   dimension in the simulation.
-- **The stripe on a striped ball does not tumble.** The number is projected
-  properly, so it rolls over the top of the ball and squashes as it goes, but
-  the colour band is drawn as a flat horizontal strip. Doing it correctly needs
-  the band to be clipped per pixel against the sphere.
+
+## Two things that were not obvious
+
+**A perfect rack does not break.** With the balls in a mathematically exact
+triangle, the impulse runs straight through the pack like a Newton's cradle and
+most of the balls never move at all. Real racks have gaps. A fraction of a
+millimetre of deterministic jitter, seeded so it is the same every time, is
+enough to make the pack scatter properly.
+
+**Frame spacing is not uniform.** The simulation runs on events, so a step is
+however long it is until the next contact. During a break, dozens of contacts
+land inside a few milliseconds and each one produces a very short step. Anything
+that replays the recording has to look frames up by timestamp; indexing them at
+a fixed rate makes those clusters play back as a freeze.

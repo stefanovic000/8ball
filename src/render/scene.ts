@@ -379,11 +379,74 @@ function drawPlacement(ctx: CanvasRenderingContext2D, p: V2): void {
 }
 
 /**
+ * Fills the visible part of the sphere where P . axis > c * R.
+ *
+ * That is a spherical cap, and its outline depends on how the axis sits
+ * relative to the camera: a circle when the axis points at you, a straight
+ * edge when it lies in the screen plane, a conic in between. Solved per
+ * scanline by intersecting the plane with the circle of that row.
+ */
+function fillCap(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  R: number,
+  axis: V3,
+  c: number,
+  color: string,
+  rows: number,
+): void {
+  const ax = axis.x;
+  const ay = axis.y;
+  const az = axis.z;
+  ctx.fillStyle = color;
+
+  for (let i = 0; i < rows; i++) {
+    const y = -R + ((i + 0.5) * 2 * R) / rows;
+    const h2 = R * R - y * y;
+    if (h2 <= 0) continue;
+    const h = Math.sqrt(h2);
+    const K = c * R - y * ay;
+
+    const edges: number[] = [-h, h];
+    if (Math.abs(az) < 1e-9) {
+      if (Math.abs(ax) > 1e-9) {
+        const x = K / ax;
+        if (x > -h && x < h) edges.push(x);
+      }
+    } else {
+      const A = ax * ax + az * az;
+      const B = -2 * K * ax;
+      const Cc = K * K - az * az * h2;
+      const disc = B * B - 4 * A * Cc;
+      if (disc > 0) {
+        const sq = Math.sqrt(disc);
+        for (const x of [(-B - sq) / (2 * A), (-B + sq) / (2 * A)]) {
+          if (x > -h && x < h) edges.push(x);
+        }
+      }
+    }
+
+    edges.sort((p, q) => p - q);
+    for (let k = 0; k < edges.length - 1; k++) {
+      const x0 = edges[k];
+      const x1 = edges[k + 1];
+      if (x1 - x0 < 1e-9) continue;
+      const xm = (x0 + x1) / 2;
+      const zm = Math.sqrt(Math.max(0, h2 - xm * xm));
+      if (ax * xm + ay * y + az * zm > c * R) {
+        ctx.fillRect(cx + x0, cy + y, x1 - x0, (2 * R) / rows + 1e-6);
+      }
+    }
+  }
+}
+
+/**
  * One ball.
  *
- * Solids are a disc with a white number patch, stripes are a band. The patch
- * position comes from the ball's orientation, so the number rolls over the top
- * of the ball and disappears round the back while it moves.
+ * Solids are a disc with a white number patch, stripes a coloured band. The
+ * patch position comes from the ball's orientation, so the number rolls over
+ * the top of the ball and disappears round the back while it moves.
  */
 export function drawBall(
   ctx: CanvasRenderingContext2D,
@@ -420,11 +483,17 @@ export function drawBall(
   ctx.fillStyle = isCue ? '#f4f2ec' : stripe ? '#f4f2ec' : hue;
   ctx.fillRect(x - R, y - R, R * 2, R * 2);
 
-  if (stripe && !isCue) {
-    // Narrow enough that the white poles read clearly. A band that reaches the
-    // top and bottom of the ball just looks like a solid.
+  if (stripe && !isCue && detail > 0) {
+    // The whole ball goes the stripe colour, then the two poles are painted
+    // back to white. Because the poles are clipped against the sphere they
+    // tilt, narrow and merge with the silhouette exactly as the ball rolls,
+    // instead of being a flat bar that ignores the rotation.
     ctx.fillStyle = hue;
-    ctx.fillRect(x - R, y - R * 0.67, R * 2, R * 1.34);
+    ctx.fillRect(x - R, y - R, R * 2, R * 2);
+    const rows = Math.max(10, Math.min(320, Math.round(pxRadius * 2)));
+    const axis = qRotate(b.q, { x: 0, y: 1, z: 0 });
+    fillCap(ctx, x, y, R, axis, 0.62, '#f4f2ec', rows);
+    fillCap(ctx, x, y, R, { x: -axis.x, y: -axis.y, z: -axis.z }, 0.62, '#f4f2ec', rows);
   }
 
   // Shading and highlight go down before the number. Shading the patch as

@@ -88,7 +88,18 @@ export const makeBall = (id: number, x: number, y: number): Ball => ({
   pocketed: false,
 });
 
-const RACK_SPACING = 2 * BALL_R + 0.0004;
+const RACK_SPACING = 2 * BALL_R + 0.004;
+
+/**
+ * A real rack is never perfectly tight. With a mathematically perfect triangle
+ * the break behaves like a Newton's cradle: the impulse runs straight through
+ * and only the back of the rack moves. A few tenths of a millimetre of
+ * deterministic jitter is enough to make the pack scatter like a real one.
+ */
+function rackJitter(seed: number): number {
+  const x = Math.sin(seed * 12.9898) * 43758.5453;
+  return (x - Math.floor(x) - 0.5) * 0.0035;
+}
 
 /**
  * Standard 8-ball rack: 1 on the apex, 8 in the middle, one solid and one
@@ -110,7 +121,8 @@ export function newRack(): Ball[] {
     for (let i = 0; i < line.length; i++) {
       const x = apexX + row * dx;
       const y = (i - (line.length - 1) / 2) * RACK_SPACING;
-      balls.push(makeBall(line[i], x, y));
+      const seed = row * 7 + i + 1;
+      balls.push(makeBall(line[i], x + rackJitter(seed) * 0.5, y + rackJitter(seed + 31)));
     }
     row++;
   }
@@ -525,7 +537,7 @@ export function simulate(balls: Ball[]): { events: SimEvent[]; frames: Frame[] }
 
     // Resolve whatever we just ran into. A few passes so a ball squeezed
     // between two others settles instead of jittering.
-    for (let pass = 0; pass < 4; pass++) {
+    for (let pass = 0; pass < 12; pass++) {
       let touched = false;
       for (let i = 0; i < active.length; i++) {
         for (let k = i + 1; k < active.length; k++) {

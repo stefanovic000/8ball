@@ -549,10 +549,21 @@ export class App {
     if (this.playFrames.length === 0) return this.state.balls;
 
     const fs = this.playFrames;
-    const f = this.playT * 240;
-    const i0 = clamp(Math.floor(f), 0, fs.length - 1);
+    // Frames are not evenly spaced - contacts produce clusters of very short
+    // steps - so the time has to be found by timestamp. Indexing at a fixed
+    // 240Hz made those clusters look like the table had frozen.
+    const t = this.playT;
+    let lo = 0;
+    let hi = fs.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (fs[mid].t <= t) lo = mid;
+      else hi = mid - 1;
+    }
+    const i0 = lo;
     const i1 = Math.min(i0 + 1, fs.length - 1);
-    const a = f - i0;
+    const span = fs[i1].t - fs[i0].t;
+    const a = span > 1e-9 ? (t - fs[i0].t) / span : 0;
     const A = fs[i0];
     const B = fs[i1];
 

@@ -26,7 +26,8 @@ describe('rack', () => {
   it('puts the 8 in the middle of the rack and a solid/stripe in the back corners', () => {
     const balls = newRack();
     const eight = balls.find((b) => b.id === 8)!;
-    expect(Math.abs(eight.p.y)).toBeLessThan(1e-9);
+    // The rack has a little deterministic jitter, so "middle" is approximate.
+    expect(Math.abs(eight.p.y)).toBeLessThan(0.003);
     const back = balls
       .filter((b) => b.id !== 0)
       .sort((a, b) => b.p.x - a.p.x)
