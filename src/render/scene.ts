@@ -173,18 +173,17 @@ function buildTable(): HTMLCanvasElement {
   // --- pockets ---
   POCKETS.forEach((p, i) => {
     const corner = i < 4;
-    const r = corner ? 0.072 : 0.062;
-    // throat: lets the hole read as a cut in the table rather than a sticker
-    g.fillStyle = '#050a08';
+    const r = corner ? 0.070 : 0.060;
+
+    g.fillStyle = '#04070a';
     g.beginPath();
-    g.arc(p.x, p.y, r * 1.14, 0, TAU);
+    g.arc(p.x, p.y, r, 0, TAU);
     g.fill();
 
-    const hole = g.createRadialGradient(p.x, p.y, r * 0.12, p.x, p.y, r);
-    hole.addColorStop(0, '#000000');
-    hole.addColorStop(0.82, '#030706');
-    hole.addColorStop(1, '#0a1512');
-    g.fillStyle = hole;
+    const lip = g.createRadialGradient(p.x, p.y, r * 0.5, p.x, p.y, r);
+    lip.addColorStop(0, 'rgba(0,0,0,0)');
+    lip.addColorStop(1, 'rgba(0,0,0,0.7)');
+    g.fillStyle = lip;
     g.beginPath();
     g.arc(p.x, p.y, r, 0, TAU);
     g.fill();

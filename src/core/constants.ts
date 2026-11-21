@@ -33,10 +33,14 @@ export const HALF_W = TABLE_W / 2;
  */
 export const RAIL_H = 0.27 * BALL_R;
 
-/** Cushion stops this far from a corner pocket. */
-export const CORNER_GAP = 0.105;
-/** Cushion stops this far either side of a side pocket. */
-export const SIDE_GAP = 0.082;
+/**
+ * Cushion stops this far from a corner pocket, measured along each rail. The
+ * mouth across the corner is CORNER_GAP * sqrt(2) = 116mm, close to the 115mm
+ * of a real 9ft table.
+ */
+export const CORNER_GAP = 0.082;
+/** Half the side pocket mouth: 128mm across, against 127mm on a real table. */
+export const SIDE_GAP = 0.064;
 /** Radius of the rounded jaw at the end of each cushion. Sharp, like a cut. */
 export const JAW_R = 0.004;
 
