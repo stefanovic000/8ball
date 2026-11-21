@@ -170,37 +170,118 @@ function buildTable(): HTMLCanvasElement {
     g.restore();
   }
 
+  // --- shadow the rails cast onto the cloth ---
+  // Without this the cushions look painted on: nothing tells the eye the rail
+  // is above the cloth.
+  const sh = 0.06;
+  const sides: Array<[number, number, number, number, number, number]> = [
+    [-HALF_L, -HALF_W, TABLE_L, sh, 0, 1],
+    [-HALF_L, HALF_W - sh, TABLE_L, sh, 0, -1],
+    [-HALF_L, -HALF_W, sh, TABLE_W, 1, 0],
+    [HALF_L - sh, -HALF_W, sh, TABLE_W, -1, 0],
+  ];
+  for (const [rx, ry, rw, rh, gx, gy] of sides) {
+    const grad0 = g.createLinearGradient(
+      gx === 0 ? 0 : rx + (gx > 0 ? 0 : rw),
+      gy === 0 ? 0 : ry + (gy > 0 ? 0 : rh),
+      gx === 0 ? 0 : rx + (gx > 0 ? rw : 0),
+      gy === 0 ? 0 : ry + (gy > 0 ? rh : 0),
+    );
+    grad0.addColorStop(0, 'rgba(0,0,0,0.42)');
+    grad0.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grad0;
+    g.fillRect(rx, ry, rw, rh);
+  }
+
   // --- pockets ---
-  // The mouth is the gap between the cushion ends, so the hole is drawn
-  // starting from that same mouth. What you see is what the ball falls into.
+  // A pocket is a straight mouth (the gap the two cushion ends leave) with a
+  // rounded throat bulging away from the table. Drawn as one shape so the hole
+  // and the mouth are the same object.
   POCKETS.forEach((p, i) => {
     const corner = i < 4;
-    const r = corner ? 0.060 : 0.052;
     const sx = Math.sign(p.x);
     const sy = Math.sign(p.y);
 
-    g.fillStyle = '#04070a';
-    g.beginPath();
+    let jawA: { x: number; y: number };
+    let jawB: { x: number; y: number };
+    let ox: number;
+    let oy: number;
+    let bulge: number;
+
     if (corner) {
-      // wedge from the two cushion ends out past the corner, rounded off
-      g.moveTo(p.x - sx * CORNER_GAP, p.y);
-      g.lineTo(p.x + sx * 0.052, p.y);
-      g.lineTo(p.x + sx * 0.052, p.y + sy * 0.052);
-      g.lineTo(p.x, p.y + sy * 0.052);
-      g.lineTo(p.x, p.y - sy * CORNER_GAP);
-      g.closePath();
+      jawA = { x: p.x - sx * CORNER_GAP, y: p.y };
+      jawB = { x: p.x, y: p.y - sy * CORNER_GAP };
+      const k = Math.SQRT1_2;
+      ox = sx * k;
+      oy = sy * k;
+      bulge = 0.085;
     } else {
-      g.moveTo(p.x - SIDE_GAP, p.y);
-      g.lineTo(p.x - SIDE_GAP, p.y + sy * 0.052);
-      g.lineTo(p.x + SIDE_GAP, p.y + sy * 0.052);
-      g.lineTo(p.x + SIDE_GAP, p.y);
-      g.closePath();
+      jawA = { x: p.x - SIDE_GAP, y: p.y };
+      jawB = { x: p.x + SIDE_GAP, y: p.y };
+      ox = 0;
+      oy = sy;
+      bulge = 0.062;
     }
+
+    const mx = (jawA.x + jawB.x) / 2;
+    const my = (jawA.y + jawB.y) / 2;
+
+    // ambient occlusion on the cloth around the mouth - this is what makes it
+    // read as a hole rather than a shape drawn on top
+    const ao = g.createRadialGradient(mx, my, 0.01, mx, my, bulge * 1.6);
+    ao.addColorStop(0, 'rgba(0,0,0,0.5)');
+    ao.addColorStop(0.55, 'rgba(0,0,0,0.22)');
+    ao.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = ao;
+    g.beginPath();
+    g.arc(mx, my, bulge * 1.6, 0, TAU);
     g.fill();
 
+    // The hole starts at the mouth and takes the whole corner with it,
+    // including the cloth triangle the cushions leave behind.
     g.beginPath();
-    g.arc(corner ? p.x + sx * 0.045 : p.x, corner ? p.y + sy * 0.045 : p.y + sy * 0.03, r, 0, TAU);
+    if (corner) {
+      const ex = p.x + sx * 0.050;
+      const ey = p.y + sy * 0.050;
+      g.moveTo(jawA.x, jawA.y);
+      g.lineTo(ex, p.y);
+      g.quadraticCurveTo(ex, ey, p.x, ey);
+      g.lineTo(jawB.x, jawB.y);
+    } else {
+      const ey = p.y + sy * 0.046;
+      g.moveTo(jawA.x, jawA.y);
+      g.lineTo(jawA.x, ey);
+      g.quadraticCurveTo(jawA.x, ey, jawA.x + 0.02, ey);
+      g.lineTo(jawB.x - 0.02, ey);
+      g.quadraticCurveTo(jawB.x, ey, jawB.x, ey);
+      g.lineTo(jawB.x, jawB.y);
+    }
+    g.closePath();
+    g.fillStyle = '#04070a';
     g.fill();
+
+    // depth: darker at the throat, lighter at the mouth
+    const depth = g.createRadialGradient(
+      mx - ox * bulge * 0.2,
+      my - oy * bulge * 0.2,
+      bulge * 0.1,
+      mx + ox * bulge * 0.6,
+      my + oy * bulge * 0.6,
+      bulge * 1.5,
+    );
+    depth.addColorStop(0, 'rgba(255,255,255,0.07)');
+    depth.addColorStop(0.45, 'rgba(0,0,0,0)');
+    depth.addColorStop(1, 'rgba(0,0,0,0.8)');
+    g.fillStyle = depth;
+    g.fill();
+
+    // a thin dark lip along the mouth edge
+    g.strokeStyle = 'rgba(0,0,0,0.55)';
+    g.lineWidth = 0.004;
+    g.beginPath();
+    g.moveTo(jawA.x, jawA.y);
+    g.lineTo(jawB.x, jawB.y);
+    g.stroke();
   });
 
   // --- sights ---
