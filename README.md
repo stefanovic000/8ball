@@ -27,13 +27,8 @@ npm run server       # http://localhost:8787
 
 Node 20+.
 
-## Live
-
-**https://8ball.stef000.dev**
-
-One Node process on a 1 GB ARM VPS, behind Caddy, listening on loopback only.
-The whole deployment is a built client, a single bundled `server.mjs`, and `ws`.
-See [deploy/README.md](deploy/README.md).
+Deployment is one Node process behind Caddy, listening on loopback only — see
+[deploy/README.md](deploy/README.md).
 
 ## The menu
 
