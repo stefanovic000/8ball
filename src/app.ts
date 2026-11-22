@@ -525,6 +525,7 @@ export class App {
           if (maxDrift(res.balls, m.state.balls) > 0.001) {
             console.warn('physics mismatch with the server; correcting to its board when the shot ends');
           }
+          this.note({ side: 'receiver', frames: res.frames.length, drift: Number(maxDrift(res.balls, m.state.balls).toFixed(4)) });
           this.audio.play(res.events);
           this.startReplay(res.frames);
         }
@@ -763,12 +764,24 @@ export class App {
     }
     this.audio.cue(this.power);
     this.audio.play(res.events);
+    this.note({ side: 'shooter', frames: res.frames.length, power: Number(this.power.toFixed(2)) });
     this.net?.send({ t: 'shot', shot });
     this.clockEnd = 0;
     this.startReplay(res.frames);
   }
 
   // ------------------------------------------------------------- playback
+
+  /**
+   * Keeps a short record of recent shots so a one-off glitch can be looked at
+   * afterwards instead of guessed at. Read it with `window.__shotLog`.
+   */
+  private note(entry: Record<string, unknown>): void {
+    const w = window as unknown as { __shotLog?: Array<Record<string, unknown>> };
+    w.__shotLog ??= [];
+    w.__shotLog.push({ t: Date.now(), mode: this.mode, hidden: document.hidden, ...entry });
+    if (w.__shotLog.length > 10) w.__shotLog.shift();
+  }
 
   private startReplay(frames: Frame[], done?: () => void): void {
     if (frames.length < 2) {
@@ -783,6 +796,13 @@ export class App {
   }
 
   private endPlayback(): void {
+    if (this.playFrames.length > 0) {
+      this.note({
+        side: 'endPlayback',
+        dur: Number(this.playDur.toFixed(2)),
+        played: Number(((Date.now() - this.playStart) / 1000).toFixed(2)),
+      });
+    }
     this.playFrames = [];
     this.playT = 0;
     const done = this.afterPlay;
