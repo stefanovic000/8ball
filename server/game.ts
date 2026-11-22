@@ -43,7 +43,10 @@ const MIME: Record<string, string> = {
   '.json': 'application/json',
 };
 
-export async function createGameServer(port = 8787): Promise<GameServer> {
+export async function createGameServer(
+  port = 8787,
+  host?: string,
+): Promise<GameServer> {
   const rooms = new Map<string, Room>();
   const dist = join(process.cwd(), 'dist');
 
@@ -342,7 +345,7 @@ export async function createGameServer(port = 8787): Promise<GameServer> {
     }
   }, 1000);
 
-  await new Promise<void>((resolve) => server.listen(port, resolve));
+  await new Promise<void>((resolve) => server.listen(port, host, resolve));
   const addr = server.address();
   const actualPort = typeof addr === 'object' && addr ? addr.port : port;
 
