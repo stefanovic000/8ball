@@ -508,6 +508,7 @@ function fillCap(
     }
 
     edges.sort((p, q) => p - q);
+    const band = (2 * R) / rows;
     for (let k = 0; k < edges.length - 1; k++) {
       const x0 = edges[k];
       const x1 = edges[k + 1];
@@ -515,7 +516,15 @@ function fillCap(
       const xm = (x0 + x1) / 2;
       const zm = Math.sqrt(Math.max(0, h2 - xm * xm));
       if (ax * xm + ay * y + az * zm > c * R) {
-        ctx.fillRect(cx + x0, cy + y, x1 - x0, (2 * R) / rows + 1e-6);
+        // Bands overlap their neighbours. Without the overlap each sub-pixel
+        // seam is anti-aliased against the coloured body underneath, and the
+        // white cap ends up tinted with the ball's own colour.
+        ctx.fillRect(
+          cx + x0 - band * 0.15,
+          cy + y - band * 0.5,
+          x1 - x0 + band * 0.3,
+          band * 2,
+        );
       }
     }
   }
@@ -570,7 +579,7 @@ export function drawBall(
     // instead of being a flat bar that ignores the rotation.
     ctx.fillStyle = hue;
     ctx.fillRect(x - R, y - R, R * 2, R * 2);
-    const rows = Math.max(10, Math.min(320, Math.round(pxRadius * 2)));
+    const rows = Math.max(24, Math.min(400, Math.round(pxRadius * 4)));
     const axis = qRotate(b.q, { x: 0, y: 1, z: 0 });
     fillCap(ctx, x, y, R, axis, 0.62, '#f4f2ec', rows);
     fillCap(ctx, x, y, R, { x: -axis.x, y: -axis.y, z: -axis.z }, 0.62, '#f4f2ec', rows);
