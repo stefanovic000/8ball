@@ -76,6 +76,7 @@ export async function createGameServer(port = 8787): Promise<GameServer> {
     const r = (raw ?? {}) as Partial<Rules>;
     const clock = Number(r.shotClock);
     return {
+      ruleset: r.ruleset === 'american' ? 'american' : 'european',
       shotClock: [0, 20, 30, 45].includes(clock) ? clock : 30,
       calledPockets: Boolean(r.calledPockets),
       ballInHand: r.ballInHand === 'behind' ? 'behind' : 'anywhere',
@@ -152,7 +153,7 @@ export async function createGameServer(port = 8787): Promise<GameServer> {
     }
 
     const clean = { aim, power, spin: { x: sx, y: sy } };
-    const res = shoot(st.balls, clean);
+    const res = shoot(st.balls, clean, 0, st.onBreak);
     const out = judgeShot(st, res.events, room.rules);
 
     if (out.rerack) {
@@ -235,7 +236,10 @@ export async function createGameServer(port = 8787): Promise<GameServer> {
         break;
       }
       case 'join': {
-        if (client.room) return;
+        if (client.room) {
+          send(client, { t: 'error', message: 'You are already in a room.' });
+          return;
+        }
         const room = rooms.get(String(msg.code ?? '').toUpperCase());
         if (!room) {
           send(client, { t: 'error', message: 'No room with that code.' });
