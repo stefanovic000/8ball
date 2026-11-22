@@ -1,24 +1,24 @@
 # 8ball
 
-A top-down 8-ball pool game in the browser, with the physics written from
-scratch. No physics engine, no game framework, no rendering library.
+A top-down 8-ball pool game in the browser. The physics is written from
+scratch — no physics engine, no game framework, no rendering library.
 
 ![the table](docs/preview/ui-table.png)
 
-I started this to see if a browser game could get pool *physics* right rather
-than just look like pool. The things that matter are draw and follow, throw on a
-cut, squirt off the tip, and balls that rattle in the jaws instead of vanishing.
-All of that is in here.
+I built it to see how close a browser game could get to real pool *physics*,
+not just to something that looks like pool. Draw and follow, throw on a cut,
+squirt off the tip, balls that rattle in the jaws instead of disappearing — it
+is all in here, and none of it is faked with animation.
 
 ## Running it
 
 ```bash
 npm install
 npm run dev          # client on http://localhost:5173
-npm run server       # in another terminal, game server on :8787
+npm run server       # game server on :8787, in another terminal
 ```
 
-For a single process that serves both:
+Or one process for both:
 
 ```bash
 npm run build
@@ -27,59 +27,103 @@ npm run server       # http://localhost:8787
 
 Node 20+.
 
+## The menu
+
+![menu](docs/preview/ui-setup.png)
+
+Online is the default. Two players, one room: one creates it, the other joins
+with the 4-character code. Practice is a sandbox — always your turn, no fouls,
+the 8 comes back if you pot it.
+
+Match settings are one click away rather than spread over the screen:
+
+![settings](docs/preview/ui-settings.png)
+
 ## Playing
 
 | | |
 |---|---|
 | Aim | move the mouse |
-| Power | drag the bar on the right, or ↑ / ↓ |
-| Fine aim | ← / → (hold Shift for 0.1°) |
-| Spin | drag the little ball in the bottom right; double click to reset |
+| Power | the bar on the right, or ↑ / ↓ |
+| Fine aim | ← / →, hold Shift for smaller steps |
+| Spin | the ball in the bottom right, double click to reset |
 | Shoot | click, or Space |
 | Rotate table | the button top right, or `R` |
-| Ball in hand | `B` (practice only) |
-| New rack | `N` (practice only) |
-
-**Practice** is a sandbox. It is always your turn, there are no fouls, and the
-8 comes back on the table if you pot it.
-
-**Online** is two players in a room. One creates, the other joins with the
-4-character code.
+| Ball in hand | `B` (practice) |
+| New rack | `N` (practice) |
 
 ## Rules
 
-Picked on the setup screen and sent to the server when the room is made, so both
-players and the server are playing the same game.
+The ruleset is picked before the match and sent with the room, so the server
+and both players are refereeing the same game.
 
-Defaults: 8-ball, no called pockets, 30 second shot clock, ball in hand anywhere.
+**European (default)** — blackball.
 
-Fouls that are actually implemented: scratch, hitting nothing, wrong group
-first, no rail after contact, and hitting the 8 out of turn. On a foul the other
-player gets ball in hand.
+- The break has to pot a ball or drive two object balls to a cushion. Anything
+  less is a foul.
+- A foul gives the opponent **two visits**, not just the turn.
+- Ball in hand is behind the line by default.
+
+**American** — one visit, ball in hand anywhere, and a break only has to make
+contact with something.
+
+Fouls in both: scratch, hitting nothing, wrong group first, no rail after
+contact, hitting the 8 out of turn. Potting the 8 before clearing your group
+loses; potting it after clearing wins.
+
+## Sound
+
+Synthesised, no audio files. Every contact gets a voice of its own, with pitch
+and volume from its impact speed, scheduled against the audio clock the moment
+a shot is known. A break is 30-odd contacts in a third of a second, so voices
+are bucketed and capped per 60 ms window — uncapped it is a buzz, not a sound.
+
+Because it is scheduled rather than triggered per frame, a shot still plays
+correctly when the tab is in the background.
 
 ## How it works
 
-The short version: the table is simulated as an **event-driven analytic model**,
-not by stepping a physics world every frame.
+The table is an **event-driven analytic model**, not a physics world stepped
+every frame.
 
-Between collisions a ball's path is a closed-form equation. Sliding has a
-constant deceleration, rolling has a different constant deceleration, and the
-moment a ball stops sliding and starts rolling can be calculated exactly. So the
-simulator jumps from collision to collision instead of ticking at 60 Hz.
+Between collisions a ball's path is a closed-form equation: sliding has one
+constant deceleration, rolling has another, and the instant a ball stops
+sliding and starts rolling is calculable exactly. The simulator jumps from
+collision to collision instead of ticking at 60 Hz.
 
-That buys a few things:
+That means no tunnelling at break speed, no drift or jitter, no solver to tune,
+and identical results every run — which is what lets the server settle the
+final positions online.
 
-- no tunnelling, even at break speed (about 8 m/s, which is 4 cm per 60 Hz frame)
-- no drift or jitter, no solver to tune
-- the same shot always produces the same result, bit for bit
-- it is cheap, because most of the time nothing is moving
-
-Collisions are impulse-based. The normal impulse runs through both centres, so
-it cannot change spin. Everything interesting comes from the **tangential
-friction impulse** underneath it: that is what produces throw on a cut, spins the
-object ball, and makes english work off a cushion.
+Collisions are impulse-based. The normal impulse passes through both centres,
+so it cannot change spin. Everything interesting comes from the **tangential
+friction impulse** underneath it: throw on a cut, spin on the object ball,
+english off a cushion.
 
 There is a longer writeup in [docs/physics.md](docs/physics.md).
+
+![balls](docs/preview/balls.png)
+
+## Multiplayer
+
+The server is authoritative and runs the same simulation code as the client. A
+shot is about 60 bytes on the wire: aim, power, spin. The outcome is never sent
+by a client.
+
+```
+client sends { aim, spin, power }
+server simulates, judges, broadcasts { shot, state }
+both clients animate from the shot, then adopt the server's table
+```
+
+A client cannot report a fake result because it never reports one. It does
+simulate locally for instant feedback, and compares its result against the
+server's — if they ever differ it warns and lets the server's board win.
+
+One process, one port, no database. Rooms are a `Map`; a single interval sweeps
+every room's shot clock.
+
+![lobby](docs/preview/mp-lobby.png)
 
 ## Layout
 
@@ -87,9 +131,10 @@ There is a longer writeup in [docs/physics.md](docs/physics.md).
 src/core/          simulation, no DOM
   physics.ts       balls, collisions, the event loop
   table.ts         cushion segments, jaws, pockets
-  rules.ts         8-ball referee (takes a list of events, returns a verdict)
+  rules.ts         the referee (takes a list of events, returns a verdict)
   constants.ts     measured values for a 9ft table
 src/render/        canvas 2d: table and balls
+src/audio.ts       synthesised contact sounds
 src/ui/            spin picker
 src/app.ts         input, turn flow, playback
 server/            node + ws, authoritative
@@ -98,8 +143,8 @@ test/              physics, rules, rendering, multiplayer
 tools/             headless renderer used by the tests and the previews
 ```
 
-The simulation lives in `src/core` and imports nothing from the browser. The
-server imports the same files the client does.
+`src/core` imports nothing from the browser. The server imports the same files
+the client does.
 
 ## Tests
 
@@ -107,68 +152,39 @@ server imports the same files the client does.
 npm test
 ```
 
-41 tests across four files:
-
 - **physics** — determinism, draw vs stun vs follow, squirt direction, cushion
   rebound, pocketing, balls never leaving the table
-- **rules** — every foul, group assignment, the 8 winning and losing
+- **rules** — every foul, group assignment, the blackball break and the two
+  visits, the 8 winning and losing
 - **visual** — renders the table and all sixteen balls to a real canvas and
-  checks pixels: cloth is green, the pocket is dark, the cue ball is white, each
-  ball has its own colour and a readable number
-- **multiplayer** — starts a real server on a random port, connects two
-  WebSocket clients, plays a break, and checks that out-of-turn shots and
-  impossible spin are rejected
+  checks pixels
+- **multiplayer** — starts a real server, connects two WebSocket clients, plays
+  a break, and checks that out-of-turn shots and impossible spin are rejected
 
-The visual tests run in Node using `@napi-rs/canvas` with a tiny DOM shim, so
-they do not need a browser.
+The visual tests run in Node with a small DOM shim, so they need no browser.
 
-To write the images out and look at them yourself:
+To write the previews out yourself:
 
 ```bash
-npm run shot     # docs/preview/rack.png, break.png, english.png, balls.png
+npx tsx tools/render.ts        # table, balls, break
+node tools/browser-check.mjs   # the real app in Edge, plus console errors
 ```
 
-![the balls](docs/preview/balls.png)
-
-## Multiplayer
-
-The server is authoritative and it runs the same simulation code as the client.
-A shot is about 40 bytes on the wire; the outcome is never sent by a client.
-
-```
-client sends { aim, spin, power }
-server simulates, judges, broadcasts { shot, state }
-both clients animate from the shot, then adopt the server's table
-```
-
-That means a client cannot report a fake result, because it never reports one.
-The client still simulates locally for instant feedback and gets corrected by the
-next state message if it ever drifts.
-
-One process, one port, no database for live games. Rooms are a `Map` and a room
-clock sweeps the whole server once a second.
+![break](docs/preview/break-end.png)
 
 ## What is simplified
 
-Being honest about the edges, since this is meant to be readable rather than
-complete:
-
 - **No masse.** Sidespin does not curve the ball in flight, only off rails and
   through throw. Real masse needs cue elevation, which is not modelled.
-- **Pockets are a test, not geometry.** A ball is pocketed when its centre leaves
-  the playing rectangle. It can only do that through a gap between cushions, so
-  it works, but there is no proper pocket cut behind it.
-- **Jaws are circles.** They rattle balls out, which is the important part, but
-  they are not the angled cushion ends of a real table.
-- **Called pockets** exists in the rules engine but there is no UI for calling a
-  pocket yet, so the option is disabled in the menu.
+- **The table is 9ft with 2¼" balls** — American dimensions. Real blackball is
+  a 7ft table with 2" balls.
+- **Called pockets** exists in the referee but has no UI, so it is disabled.
 - **8 on the break** re-racks instead of spotting.
-- **No jump shots.** Cue elevation is not in the input model.
-- **No sound.** It would help a lot and it is not there.
+- **No jump shots**, and no push-out after a foul.
+- **Pocket depth is visual.** The ball is pocketed when its centre crosses the
+  mouth.
 
 ## If I kept going
 
-Sound first — collision-triggered, volume from impact speed. It does more for
-"this feels like pool" than another week of physics.
-
-Then a shot preview that is honest about squirt, and a proper called-pocket UI.
+Reconnection, so a dropped tab does not lose the room. Then a proper
+called-pocket UI, and cue elevation for masse and jump shots.
