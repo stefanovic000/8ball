@@ -60,19 +60,17 @@ Match settings are one click away rather than spread over the screen:
 The ruleset is picked before the match and sent with the room, so the server
 and both players are refereeing the same game.
 
-**European (default)** — blackball.
+**European (default)** differs in one way only: the break has to pot a ball or
+drive two object balls to a cushion. Anything less is a foul.
 
-- The break has to pot a ball or drive two object balls to a cushion. Anything
-  less is a foul.
-- A foul gives the opponent **two visits**, not just the turn.
-- Ball in hand is behind the line by default.
+**American** lets a break off as long as it makes contact with something.
 
-**American** — one visit, ball in hand anywhere, and a break only has to make
-contact with something.
+A foul in either is the turn and a ball in hand — nothing more. There is no
+second visit, no extra shot, no carry.
 
-Fouls in both: scratch, hitting nothing, wrong group first, no rail after
-contact, hitting the 8 out of turn. Potting the 8 before clearing your group
-loses; potting it after clearing wins.
+Fouls: scratch, hitting nothing, wrong group first, no rail after contact,
+hitting the 8 out of turn. Potting the 8 before clearing your group loses;
+potting it after clearing wins.
 
 ## Sound
 
@@ -157,8 +155,8 @@ npm test
 
 - **physics** — determinism, draw vs stun vs follow, squirt direction, cushion
   rebound, pocketing, balls never leaving the table
-- **rules** — every foul, group assignment, the blackball break and the two
-  visits, the 8 winning and losing
+- **rules** — every foul, group assignment, the break requirement, a foul
+  handing over the turn exactly once, and the 8 winning and losing
 - **visual** — renders the table and all sixteen balls to a real canvas and
   checks pixels
 - **multiplayer** — starts a real server, connects two WebSocket clients, plays

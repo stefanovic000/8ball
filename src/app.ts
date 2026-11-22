@@ -743,6 +743,10 @@ export class App {
   private canShoot(): boolean {
     if (!this.state || this.state.over) return false;
     if (this.playFrames.length > 0 || this.placing) return false;
+    // A pocketed cue ball cannot be struck. Without this the shot went out with
+    // nothing to simulate, so the board never moved.
+    const cue = this.state.balls.find((b) => b.id === 0);
+    if (!cue || cue.pocketed) return false;
     if (this.mode === 'practice') return true;
     return this.state.turn === this.side;
   }

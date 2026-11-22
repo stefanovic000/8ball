@@ -58,27 +58,25 @@ describe('european ruleset', () => {
     expect(out.foul).toBe(false);
   });
 
-  it('gives the opponent two visits after a foul', () => {
+  it('gives the turn and a ball in hand after a foul, nothing more', () => {
     const s = state();
     const out = judgeShot(s, [contact(1), pocket(0)], DEFAULT_RULES);
     expect(out.foul).toBe(true);
-    expect(out.carry).toBe(2);
-  });
-
-  it('keeps the turn on the first miss of a carried visit', () => {
-    const s = state(['solids', 'stripes'], { carry: 2 });
-    const out = judgeShot(s, [contact(1), rail(1)], DEFAULT_RULES);
-    applyOutcome(s, out, s.balls);
-    expect(s.turn).toBe(0);
-    expect(s.carry).toBe(1);
-  });
-
-  it('hands the turn over on the second miss', () => {
-    const s = state(['solids', 'stripes'], { carry: 1 });
-    const out = judgeShot(s, [contact(1), rail(1)], DEFAULT_RULES);
     applyOutcome(s, out, s.balls);
     expect(s.turn).toBe(1);
-    expect(s.carry).toBe(0);
+    expect(s.ballInHand).toBe(true);
+  });
+
+  it('does not give the opponent a second shot for the same foul', () => {
+    // A foul costs the turn once. The next visit is a normal single shot.
+    const s = state();
+    const foul = judgeShot(s, [contact(1), pocket(0)], DEFAULT_RULES);
+    applyOutcome(s, foul, s.balls);
+    expect(s.turn).toBe(1);
+
+    const miss = judgeShot(s, [contact(1), rail(1)], DEFAULT_RULES);
+    applyOutcome(s, miss, s.balls);
+    expect(s.turn).toBe(0);
   });
 });
 
