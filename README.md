@@ -1,5 +1,7 @@
 # 8ball
 
+**[Play it → 8ball.stef000.dev](https://8ball.stef000.dev)**
+
 A top-down 8-ball pool game in the browser. The physics is written from
 scratch — no physics engine, no game framework, no rendering library.
 
