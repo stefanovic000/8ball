@@ -28,6 +28,11 @@ export class App {
   private audio = new TableAudio();
   /** Code of the room this client is in, if any. */
   private roomCode: string | null = null;
+  /** Seat token: the id the server gave the connection that joined. */
+  private token: string | null = null;
+  private helloId: string | null = null;
+  private reconnectTimer = 0;
+  private reconnectAttempts = 0;
 
   private mode: Mode = 'online';
   private side: Side = 0;
@@ -78,6 +83,7 @@ export class App {
       'controls',
       'code',
       'hosted',
+      'copylink',
       'joincode',
       'create',
     ]) {
@@ -150,6 +156,15 @@ export class App {
       document.getElementById('settings')!.classList.add('hidden');
       this.updateRulesSummary();
     });
+    document.getElementById('copylink')!.addEventListener('click', () => {
+      const code = this.roomCode;
+      if (!code) return;
+      const link = `${location.origin}/?room=${code}`;
+      void navigator.clipboard?.writeText(link).then(
+        () => this.toast('Link copied.'),
+        () => this.toast(link),
+      );
+    });
     document.getElementById('joincode')!.addEventListener('click', () => this.joinRoom());
     document.getElementById('start')!.addEventListener('click', () => this.start());
     document.getElementById('rotate')!.addEventListener('click', () => this.toggleRotate());
@@ -179,6 +194,8 @@ export class App {
 
     this.syncSetupVisibility();
     this.updateRulesSummary();
+    this.restoreSeat();
+    this.readInvite();
   }
 
   private syncSetupVisibility(): void {
@@ -187,6 +204,28 @@ export class App {
     this.el['mode-note']!.textContent = online
       ? 'Two players, one room. Same rules on both sides.'
       : 'Always your turn. Free ball in hand. No rules, just the table.';
+  }
+
+  private setMode(mode: Mode): void {
+    this.mode = mode;
+    const box = document.getElementById('mode')!;
+    for (const b of Array.from(box.querySelectorAll('button'))) {
+      b.classList.toggle('on', (b as HTMLElement).dataset.v === mode);
+    }
+    this.syncSetupVisibility();
+  }
+
+  /** A shared link carries the room code, so joining is one click. */
+  private readInvite(): void {
+    if (this.roomCode) return;
+    const invited = new URLSearchParams(location.search).get('room');
+    if (!invited) return;
+    const code = invited.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+    if (!code) return;
+    this.setMode('online');
+    const input = document.getElementById('code') as HTMLInputElement | null;
+    if (input) input.value = code;
+    this.setStatus(`Room ${code} — press Join.`);
   }
 
   private saveSettings(): void {
@@ -287,12 +326,86 @@ export class App {
     if (!this.net) {
       this.net = new Net();
       this.net.onMessage = (m) => this.onServer(m);
-      this.net.onClose = () => {
-        this.roomCode = null;
-        this.setStatus('Disconnected.');
+      this.net.onClose = () => this.onDrop();
+      this.net.onOpen = () => {
+        // Either we were mid-game, or a reload restored a held seat: both mean
+        // this connection has to claim it back before anything else.
+        if (this.roomCode && this.token) {
+          this.net!.send({ t: 'rejoin', code: this.roomCode, token: this.token });
+        }
       };
     }
     return this.net;
+  }
+
+  /** The socket went away. If a seat is involved, try to get back to it. */
+  private onDrop(): void {
+    this.net = null;
+    if (this.roomCode && this.token) {
+      this.setStatus('Connection lost. Reconnecting...');
+      this.scheduleReconnect();
+      return;
+    }
+    this.roomCode = null;
+    this.setStatus('Disconnected.');
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer) return;
+    if (this.reconnectAttempts >= 10) {
+      this.roomCode = null;
+      this.clearSeat();
+      this.setStatus('Could not reconnect.');
+      return;
+    }
+    const delay = Math.min(4000, 500 * 2 ** this.reconnectAttempts);
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = 0;
+      this.reconnectAttempts += 1;
+      this.setStatus(`Reconnecting… (${this.reconnectAttempts})`);
+      this.ensureNet();
+    }, delay);
+  }
+
+  /**
+   * A seat is worth remembering across a reload: the server holds it for a
+   * minute, so coming back with the same token puts you straight into the game.
+   */
+  private saveSeat(): void {
+    if (!this.roomCode || !this.token) return;
+    try {
+      sessionStorage.setItem('8ball.seat', JSON.stringify({ code: this.roomCode, token: this.token }));
+    } catch {
+      /* storage can be unavailable */
+    }
+  }
+
+  private clearSeat(): void {
+    try {
+      sessionStorage.removeItem('8ball.seat');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private restoreSeat(): void {
+    let raw: string | null = null;
+    try {
+      raw = sessionStorage.getItem('8ball.seat');
+    } catch {
+      return;
+    }
+    if (!raw) return;
+    try {
+      const s = JSON.parse(raw) as { code?: string; token?: string };
+      if (!s.code || !s.token) return;
+      this.roomCode = s.code;
+      this.token = s.token;
+      this.setStatus(`Rejoining room ${s.code}…`);
+      this.ensureNet();
+    } catch {
+      this.clearSeat();
+    }
   }
 
   private readName(): string {
@@ -319,6 +432,7 @@ export class App {
     this.el.hosted.classList.toggle('hidden', !inRoom);
     this.el.hosted.textContent = inRoom ? code : '';
     this.el.joincode.classList.toggle('hidden', inRoom);
+    this.el.copylink.classList.toggle('hidden', !inRoom);
     this.el.create.textContent = inRoom ? 'Close lobby' : 'Create room';
     this.el.create.classList.toggle('primary', !inRoom);
   }
@@ -326,6 +440,8 @@ export class App {
   private leaveLobby(): void {
     this.net?.send({ t: 'leave' });
     this.roomCode = null;
+    this.token = null;
+    this.clearSeat();
     this.state = null;
     this.playFrames = [];
     this.showLobby(false);
@@ -351,13 +467,29 @@ export class App {
 
   private onServer(m: ServerMsg): void {
     switch (m.t) {
+      case 'hello': {
+        // Remember what this connection is called; the first one doubles as the
+        // seat token until a room hands us our own.
+        this.helloId = m.id;
+        if (!this.token) this.token = m.id;
+        break;
+      }
       case 'room': {
         this.side = m.room.you;
         this.names = [m.room.names[0], m.room.names[1] ?? 'waiting'];
         this.rules = m.room.rules;
+        // We are in: hold the id this connection was given as the seat token,
+        // and stop trying to reconnect.
+        this.token = this.helloId;
+        this.reconnectAttempts = 0;
+        if (this.reconnectTimer) {
+          window.clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = 0;
+        }
         this.el.room!.textContent = m.room.code;
         this.el.room!.classList.remove('hidden');
         this.roomCode = m.room.code;
+        this.saveSeat();
         this.showLobby(true, m.room.code);
         this.setStatus(
           m.room.names[1]
@@ -410,6 +542,8 @@ export class App {
       case 'bye': {
         // The room is gone on the server; put the setup screen back.
         this.roomCode = null;
+        this.token = null;
+        this.clearSeat();
         this.state = null;
         this.playFrames = [];
         this.showLobby(false);

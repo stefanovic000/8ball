@@ -128,4 +128,54 @@ describe('rooms', () => {
     a.close();
     b.close();
   });
+
+  it('holds a seat and gives it back on rejoin', async () => {
+    const rules = { ruleset: 'american' as const, shotClock: 0, calledPockets: false, ballInHand: 'anywhere' as const };
+    const a = await TestClient.open(port);
+    await a.next('hello');
+    a.send({ t: 'create', name: 'Ana', rules });
+    const room = await a.next('room');
+
+    const b = await TestClient.open(port);
+    const helloB = await b.next('hello');
+    b.send({ t: 'join', name: 'Ben', code: room.room.code });
+    await Promise.all([a.next('start'), b.next('start')]);
+
+    // Ben vanishes. Ana is told the seat is being held, not that he left.
+    b.close();
+    const notice = await a.next('error');
+    expect(notice.message).toMatch(/disconnected/i);
+    expect(notice.message).toMatch(/holding/i);
+
+    // He comes back on a new socket, quoting the id he was given on connect.
+    const back = await TestClient.open(port);
+    back.send({ t: 'rejoin', code: room.room.code, token: helloB.id });
+    const again = await back.next('room');
+    expect(again.room.code).toBe(room.room.code);
+    expect(again.room.you).toBe(1);
+
+    const state = await back.next('start');
+    expect(state.state.balls).toHaveLength(16);
+
+    a.close();
+    back.close();
+  });
+
+  it('refuses a rejoin with a token that is not holding a seat', async () => {
+    const a = await TestClient.open(port);
+    a.send({
+      t: 'create',
+      name: 'A',
+      rules: { ruleset: 'american', shotClock: 0, calledPockets: false, ballInHand: 'anywhere' },
+    });
+    const room = await a.next('room');
+
+    const b = await TestClient.open(port);
+    b.send({ t: 'rejoin', code: room.room.code, token: 'not-a-real-token' });
+    const err = await b.next('error');
+    expect(err.message).toMatch(/no longer held/);
+
+    a.close();
+    b.close();
+  });
 });

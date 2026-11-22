@@ -4,6 +4,18 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>8ball</title>
+    <meta name="theme-color" content="#0b0f0e" />
+    <meta
+      name="description"
+      content="Top-down 8-ball pool with a from-scratch physics engine. European blackball rules, real spin and squirt."
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="8ball" />
+    <meta property="og:description" content="Pool physics, written from scratch." />
+    <meta property="og:image" content="https://8ball.stef000.dev/og.png" />
+    <meta property="og:url" content="https://8ball.stef000.dev/" />
+    <meta name="twitter:card" content="summary_large_image" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -80,6 +92,7 @@
           <div class="row">
             <input id="code" placeholder="CODE" maxlength="6" autocomplete="off" spellcheck="false" />
             <span id="hosted" class="hidden"></span>
+            <button id="copylink" class="hidden">Copy link</button>
             <button id="joincode">Join</button>
             <button id="create" class="primary">Create room</button>
           </div>

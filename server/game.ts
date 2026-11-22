@@ -20,7 +20,13 @@ type Client = {
   name: string;
   room: Room | null;
   side: Side;
+  /** Set while the socket is gone but the seat is still being held. */
+  gone?: boolean;
+  dropTimer?: ReturnType<typeof setTimeout>;
 };
+
+/** How long a seat survives its socket, so a reload can rejoin. */
+const GRACE_MS = 60_000;
 
 type Room = {
   code: string;
@@ -199,8 +205,13 @@ export async function createGameServer(
   }
 
   function dropClient(client: Client): void {
+    if (client.dropTimer) {
+      clearTimeout(client.dropTimer);
+      client.dropTimer = undefined;
+    }
     const room = client.room;
     client.room = null;
+    client.gone = true;
     if (!room) return;
     const other = room.slots.find((c) => c !== null && c !== client) ?? null;
     if (room.slots[0] === client) room.slots[0] = null;
@@ -284,6 +295,36 @@ export async function createGameServer(
       case 'leave':
         dropClient(client);
         break;
+      case 'rejoin': {
+        // A reloaded tab comes back with the id it was given on connect.
+        const room = rooms.get(String(msg.code ?? '').toUpperCase());
+        if (!room) {
+          send(client, { t: 'error', message: 'That room is gone.' });
+          break;
+        }
+        const idx = room.slots.findIndex((c) => c !== null && c.id === msg.token);
+        if (idx < 0) {
+          send(client, { t: 'error', message: 'That seat is no longer held.' });
+          break;
+        }
+        const old = room.slots[idx]!;
+        if (old.dropTimer) clearTimeout(old.dropTimer);
+        client.name = old.name;
+        client.side = old.side;
+        client.room = room;
+        old.room = null;
+        old.dropTimer = undefined;
+        room.slots[idx] = client;
+        armClock(room);
+        send(client, { t: 'room', room: roomInfo(room, client.side) });
+        if (room.state) send(client, { t: 'start', state: room.state });
+        const peer = room.slots[1 - idx];
+        if (peer && !peer.gone) {
+          send(peer, { t: 'peer', joined: true, name: client.name });
+          send(peer, { t: 'error', message: 'Opponent reconnected.' });
+        }
+        break;
+      }
       default:
         break;
     }
@@ -330,7 +371,20 @@ export async function createGameServer(
     const client: Client = { id: randomUUID(), ws, name: 'Player', room: null, side: 0 };
     send(client, { t: 'hello', id: client.id });
     ws.on('message', (data) => onMessage(client, String(data)));
-    ws.on('close', () => dropClient(client));
+    ws.on('close', () => {
+      // Hold the seat briefly instead of ending the room: a reload or a flaky
+      // connection can come back with the same token.
+      const room = client.room;
+      if (!room) return;
+      client.gone = true;
+      // Do not run their shot clock down while they are reconnecting.
+      room.deadline = 0;
+      const peer = room.slots.find((c) => c !== null && c !== client) ?? null;
+      if (peer && !peer.gone) {
+        send(peer, { t: 'error', message: 'Opponent disconnected. Holding their seat.' });
+      }
+      client.dropTimer = setTimeout(() => dropClient(client), GRACE_MS);
+    });
     ws.on('error', () => {
       /* client vanished mid-write */
     });

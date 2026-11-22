@@ -13,6 +13,7 @@ export type ClientMsg =
   | { t: 'place'; x: number; y: number }
   | { t: 'timeout' }
   | { t: 'rematch' }
+  | { t: 'rejoin'; code: string; token: string }
   | { t: 'leave' };
 
 export type RoomInfo = {
