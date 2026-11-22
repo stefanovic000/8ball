@@ -38,6 +38,23 @@ body {
   cursor: crosshair;
 }
 
+#table-area {
+  position: absolute;
+  inset: 54px 164px 42px 12px;
+  pointer-events: none;
+}
+
+@media (orientation: portrait) {
+  #table-area {
+    inset: 54px 54px 154px 8px;
+  }
+
+  #spinwrap #spin {
+    width: 108px;
+    height: 108px;
+  }
+}
+
 /* ---------------------------------------------------------------- top bar */
 
 #topbar {
@@ -258,7 +275,7 @@ button.wide {
 #toast {
   position: absolute;
   left: 50%;
-  bottom: 12%;
+  bottom: 12px;
   transform: translateX(-50%);
   background: #0a0d0fdd;
   border: 1px solid var(--line);
@@ -268,6 +285,15 @@ button.wide {
   color: #d6d3cc;
   backdrop-filter: blur(8px);
   transition: opacity 0.25s;
+  pointer-events: none;
+}
+
+@media (orientation: portrait) {
+  #toast {
+    left: 12px;
+    max-width: calc(100% - 148px);
+    transform: none;
+  }
 }
 
 #hint {
@@ -294,11 +320,11 @@ button.wide {
 
 .screen .panel {
   width: min(440px, calc(100vw - 40px));
-  background: #0d1011e6;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 30px 30px 26px;
-  box-shadow: 0 30px 80px #00000080;
+  background: #0b0e0f;
+  border: 1px solid #ffffff12;
+  border-radius: 8px;
+  padding: 26px 26px 22px;
+  box-shadow: 0 24px 60px #00000066;
 }
 
 .panel.narrow {
@@ -325,9 +351,14 @@ h2 {
 }
 
 .lede {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
   margin: 0 0 22px;
-  font-size: 13px;
-  line-height: 1.55;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #ffffff0e;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
   color: var(--dim);
 }
 
@@ -386,7 +417,8 @@ h2 {
 }
 
 #code,
-#name {
+#name,
+#hosted {
   flex: 1;
   min-width: 0;
   background: #ffffff08;
@@ -409,6 +441,18 @@ h2 {
 #code:focus,
 #name:focus {
   border-color: #2f9a7088;
+}
+
+/* The hosted room code, shown where the join box was. */
+#hosted {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  border-color: #2f9a7066;
+  background: #2f9a701a;
+  cursor: default;
+  user-select: text;
 }
 
 .note {

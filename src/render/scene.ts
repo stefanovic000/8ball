@@ -1,7 +1,7 @@
-import { BALL_R, CORNER_GAP, HALF_L, HALF_W, SIDE_GAP, TABLE_L, TABLE_W } from '../core/constants';
+import { BALL_R, HALF_L, HALF_W, TABLE_L, TABLE_W } from '../core/constants';
 import type { Ball } from '../core/physics';
 import { TAU, qRotate, type V2, type V3 } from '../core/math';
-import { CUSHIONS, POCKETS } from '../core/table';
+import { CUSHIONS, JAW_RADIUS, POCKET_MOUTHS, type Cushion } from '../core/table';
 
 export const RAIL = 0.128;
 /** How far the cushion sticks out past the playing edge. */
@@ -74,6 +74,109 @@ function makeNoise(size: number): HTMLCanvasElement {
   return c;
 }
 
+function drawPocket(g: CanvasRenderingContext2D, pocket: (typeof POCKET_MOUTHS)[number]): void {
+  const { a, b, outward, corner } = pocket;
+  const mouth = Math.hypot(b.x - a.x, b.y - a.y);
+  const half = mouth / 2;
+  const depth = corner ? 0.131 : 0.091;
+  g.save();
+  g.transform(
+    (b.x - a.x) / mouth, (b.y - a.y) / mouth,
+    outward.x, outward.y, (a.x + b.x) / 2, (a.y + b.y) / 2,
+  );
+
+  // Leave the mouth open against the cloth and round the back into the rail.
+  g.beginPath();
+  g.moveTo(-half, 0);
+  g.bezierCurveTo(-half - 0.027, depth * 0.38, -half - 0.030, depth, 0, depth);
+  g.bezierCurveTo(half + 0.030, depth, half + 0.027, depth * 0.38, half, 0);
+  g.fillStyle = '#060809';
+  g.fill();
+
+  g.clip();
+  const liner = g.createLinearGradient(0, 0, 0, depth);
+  liner.addColorStop(0, '#1a2421');
+  liner.addColorStop(0.26, '#0b1010');
+  liner.addColorStop(0.66, '#040607');
+  liner.addColorStop(1, '#242322');
+  g.fillStyle = liner;
+  g.fillRect(-half - 0.030, 0, mouth + 0.060, depth);
+
+  // A soft shelf shadow inside the well gives the cloth edge some depth.
+  const lip = g.createLinearGradient(0, 0, 0, 0.017);
+  lip.addColorStop(0, 'rgba(0,0,0,0.68)');
+  lip.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = lip;
+  g.fillRect(-half - 0.030, 0, mouth + 0.060, 0.017);
+  g.restore();
+}
+
+function drawCushion(g: CanvasRenderingContext2D, c: Cushion): void {
+  const len = Math.hypot(c.bx - c.ax, c.by - c.ay);
+  g.save();
+  g.transform((c.bx - c.ax) / len, (c.by - c.ay) / len, c.nx, c.ny, c.ax, c.ay);
+
+  const shadowDepth = 0.042;
+  const shadowColor = 'rgba(0,0,0,0.39)';
+  const shadow = g.createLinearGradient(0, 0, 0, shadowDepth);
+  shadow.addColorStop(0, shadowColor);
+  shadow.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = shadow;
+  g.fillRect(shadowDepth, 0, len - 2 * shadowDepth, shadowDepth);
+  for (const x of [0, len - shadowDepth]) {
+    const center = x === 0 ? shadowDepth : x;
+    const fade = g.createRadialGradient(center, 0, 0, center, 0, shadowDepth);
+    fade.addColorStop(0, shadowColor);
+    fade.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = fade;
+    g.fillRect(x, 0, shadowDepth, shadowDepth);
+  }
+
+  // In these coordinates positive y points toward the cloth. The rounded
+  // ends use the same jaw radius as the collision geometry.
+  const slope = 0.52;
+  const angle = Math.atan(slope);
+  const jawX = JAW_RADIUS * Math.cos(angle);
+  const jawY = -JAW_RADIUS * (1 + Math.sin(angle));
+  const backX = jawX - slope * (CUSHION_DEPTH + jawY);
+  g.beginPath();
+  g.moveTo(0, 0);
+  g.lineTo(len, 0);
+  g.arc(len, -JAW_RADIUS, JAW_RADIUS, Math.PI / 2, -angle, true);
+  g.lineTo(len + backX, -CUSHION_DEPTH);
+  g.lineTo(-backX, -CUSHION_DEPTH);
+  g.lineTo(-jawX, jawY);
+  g.arc(0, -JAW_RADIUS, JAW_RADIUS, Math.PI + angle, Math.PI / 2, true);
+  g.closePath();
+
+  // The cushion is cloth over rubber, angled away from the light: the same
+  // green as the bed, shading down into its own shadow. No gloss.
+  const rubber = g.createLinearGradient(0, 0, 0, -CUSHION_DEPTH);
+  rubber.addColorStop(0, '#2b8163');
+  rubber.addColorStop(0.12, '#247056');
+  rubber.addColorStop(1, '#153f30');
+  g.fillStyle = rubber;
+  g.fill();
+
+  // Shade the angled end faces within the cushion silhouette.
+  g.save();
+  g.clip();
+  g.fillStyle = 'rgba(6,19,15,0.42)';
+  for (const end of [0, len]) {
+    const inward = end === 0 ? 1 : -1;
+    g.beginPath();
+    g.moveTo(end - inward * JAW_RADIUS, 0);
+    g.lineTo(end + inward * 0.011, 0);
+    g.lineTo(end + inward * (0.011 - backX), -CUSHION_DEPTH);
+    g.lineTo(end + inward * (-backX - 0.006), -CUSHION_DEPTH);
+    g.closePath();
+    g.fill();
+  }
+  g.restore();
+
+  g.restore();
+}
+
 /**
  * Builds the static table picture once. It is always drawn unrotated - the
  * scene applies the rotation when it blits, so there is one cached image
@@ -88,14 +191,12 @@ function buildTable(): HTMLCanvasElement {
   const g = c.getContext('2d')!;
 
   g.translate(w / 2, h / 2);
-  g.scale(PX_PER_M, PX_PER_M);
+  g.scale(w / OUTER_L, h / OUTER_W);
 
   // --- wood frame ---
-  const wood = g.createLinearGradient(0, -OUTER_W / 2, 0, OUTER_W / 2);
-  wood.addColorStop(0, '#241c17');
-  wood.addColorStop(0.5, '#171210');
-  wood.addColorStop(1, '#241c17');
-  g.fillStyle = wood;
+  // One flat colour: a vertical gradient made the side rails look like a
+  // different material from the top and bottom ones.
+  g.fillStyle = '#251d18';
   roundRect(g, -OUTER_L / 2, -OUTER_W / 2, OUTER_L, OUTER_W, 0.045);
   g.fill();
 
@@ -108,10 +209,12 @@ function buildTable(): HTMLCanvasElement {
   // --- cloth ---
   const cw = TABLE_L;
   const ch = TABLE_W;
-  const cloth = g.createRadialGradient(0, -ch * 0.12, 0.05, 0, 0, cw * 0.62);
-  cloth.addColorStop(0, '#2b8f6a');
-  cloth.addColorStop(0.5, '#1e7556');
-  cloth.addColorStop(1, '#134c39');
+  // Barely-there light from above. A tight radial here reads as a smudge, so
+  // the cloth stays almost flat and the vignette does the falloff.
+  const cloth = g.createLinearGradient(0, -ch / 2, 0, ch / 2);
+  cloth.addColorStop(0, '#2f9070');
+  cloth.addColorStop(0.55, '#2a8566');
+  cloth.addColorStop(1, '#24795c');
   g.fillStyle = cloth;
   g.fillRect(-cw / 2, -ch / 2, cw, ch);
 
@@ -131,169 +234,27 @@ function buildTable(): HTMLCanvasElement {
   // vignette, so the cloth falls away towards the rails
   const vig = g.createRadialGradient(0, 0, cw * 0.3, 0, 0, cw * 0.74);
   vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, 'rgba(0,0,0,0.34)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.22)');
   g.fillStyle = vig;
   g.fillRect(-cw / 2, -ch / 2, cw, ch);
 
-  // --- cushions ---
-  for (const cu of CUSHIONS) {
-    const len = Math.hypot(cu.bx - cu.ax, cu.by - cu.ay);
-    const ang = Math.atan2(cu.by - cu.ay, cu.bx - cu.ax);
-    g.save();
-    g.translate(cu.ax, cu.ay);
-    g.rotate(ang);
-    const depth = CUSHION_DEPTH;
-    // The cushion sits *outside* the playing edge, with its nose on the line
-    // the ball actually bounces off. Drawing it inside the cloth makes the ball
-    // look like it is sinking into the rail before it rebounds.
-    const sgn = -(cu.ny !== 0 ? Math.sign(cu.ny) : Math.sign(cu.nx));
-    const d1 = depth * sgn;
-    const grad = g.createLinearGradient(0, 0, 0, d1);
-    grad.addColorStop(0, '#318a68');
-    grad.addColorStop(0.55, '#1d6d52');
-    grad.addColorStop(1, '#11432f');
-    g.fillStyle = grad;
-    g.beginPath();
-    g.moveTo(0, 0);
-    g.lineTo(len, 0);
-    g.lineTo(len - 0.012, d1);
-    g.lineTo(0.012, d1);
-    g.closePath();
-    g.fill();
-    // nose highlight
-    g.strokeStyle = 'rgba(255,255,255,0.13)';
-    g.lineWidth = 0.0025;
-    g.beginPath();
-    g.moveTo(0.012, 0);
-    g.lineTo(len - 0.012, 0);
-    g.stroke();
-    g.restore();
-  }
+  for (const pocket of POCKET_MOUTHS) drawPocket(g, pocket);
 
-  // --- shadow the rails cast onto the cloth ---
-  // Without this the cushions look painted on: nothing tells the eye the rail
-  // is above the cloth.
-  const sh = 0.06;
-  const sides: Array<[number, number, number, number, number, number]> = [
-    [-HALF_L, -HALF_W, TABLE_L, sh, 0, 1],
-    [-HALF_L, HALF_W - sh, TABLE_L, sh, 0, -1],
-    [-HALF_L, -HALF_W, sh, TABLE_W, 1, 0],
-    [HALF_L - sh, -HALF_W, sh, TABLE_W, -1, 0],
-  ];
-  for (const [rx, ry, rw, rh, gx, gy] of sides) {
-    const grad0 = g.createLinearGradient(
-      gx === 0 ? 0 : rx + (gx > 0 ? 0 : rw),
-      gy === 0 ? 0 : ry + (gy > 0 ? 0 : rh),
-      gx === 0 ? 0 : rx + (gx > 0 ? rw : 0),
-      gy === 0 ? 0 : ry + (gy > 0 ? rh : 0),
-    );
-    grad0.addColorStop(0, 'rgba(0,0,0,0.42)');
-    grad0.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = grad0;
-    g.fillRect(rx, ry, rw, rh);
-  }
-
-  // --- pockets ---
-  // A pocket is a straight mouth (the gap the two cushion ends leave) with a
-  // rounded throat bulging away from the table. Drawn as one shape so the hole
-  // and the mouth are the same object.
-  POCKETS.forEach((p, i) => {
-    const corner = i < 4;
-    const sx = Math.sign(p.x);
-    const sy = Math.sign(p.y);
-
-    let jawA: { x: number; y: number };
-    let jawB: { x: number; y: number };
-    let ox: number;
-    let oy: number;
-    let bulge: number;
-
-    if (corner) {
-      jawA = { x: p.x - sx * CORNER_GAP, y: p.y };
-      jawB = { x: p.x, y: p.y - sy * CORNER_GAP };
-      const k = Math.SQRT1_2;
-      ox = sx * k;
-      oy = sy * k;
-      bulge = 0.085;
-    } else {
-      jawA = { x: p.x - SIDE_GAP, y: p.y };
-      jawB = { x: p.x + SIDE_GAP, y: p.y };
-      ox = 0;
-      oy = sy;
-      bulge = 0.062;
-    }
-
-    const mx = (jawA.x + jawB.x) / 2;
-    const my = (jawA.y + jawB.y) / 2;
-
-    // ambient occlusion on the cloth around the mouth - this is what makes it
-    // read as a hole rather than a shape drawn on top
-    const ao = g.createRadialGradient(mx, my, 0.01, mx, my, bulge * 1.6);
-    ao.addColorStop(0, 'rgba(0,0,0,0.5)');
-    ao.addColorStop(0.55, 'rgba(0,0,0,0.22)');
-    ao.addColorStop(1, 'rgba(0,0,0,0)');
-    g.fillStyle = ao;
-    g.beginPath();
-    g.arc(mx, my, bulge * 1.6, 0, TAU);
-    g.fill();
-
-    // The hole starts at the mouth and takes the whole corner with it,
-    // including the cloth triangle the cushions leave behind.
-    g.beginPath();
-    if (corner) {
-      const ex = p.x + sx * 0.050;
-      const ey = p.y + sy * 0.050;
-      g.moveTo(jawA.x, jawA.y);
-      g.lineTo(ex, p.y);
-      g.quadraticCurveTo(ex, ey, p.x, ey);
-      g.lineTo(jawB.x, jawB.y);
-    } else {
-      const ey = p.y + sy * 0.046;
-      g.moveTo(jawA.x, jawA.y);
-      g.lineTo(jawA.x, ey);
-      g.quadraticCurveTo(jawA.x, ey, jawA.x + 0.02, ey);
-      g.lineTo(jawB.x - 0.02, ey);
-      g.quadraticCurveTo(jawB.x, ey, jawB.x, ey);
-      g.lineTo(jawB.x, jawB.y);
-    }
-    g.closePath();
-    g.fillStyle = '#04070a';
-    g.fill();
-
-    // depth: darker at the throat, lighter at the mouth
-    const depth = g.createRadialGradient(
-      mx - ox * bulge * 0.2,
-      my - oy * bulge * 0.2,
-      bulge * 0.1,
-      mx + ox * bulge * 0.6,
-      my + oy * bulge * 0.6,
-      bulge * 1.5,
-    );
-    depth.addColorStop(0, 'rgba(255,255,255,0.07)');
-    depth.addColorStop(0.45, 'rgba(0,0,0,0)');
-    depth.addColorStop(1, 'rgba(0,0,0,0.8)');
-    g.fillStyle = depth;
-    g.fill();
-
-    // a thin dark lip along the mouth edge
-    g.strokeStyle = 'rgba(0,0,0,0.55)';
-    g.lineWidth = 0.004;
-    g.beginPath();
-    g.moveTo(jawA.x, jawA.y);
-    g.lineTo(jawB.x, jawB.y);
-    g.stroke();
-  });
+  for (const cushion of CUSHIONS) drawCushion(g, cushion);
 
   // --- sights ---
-  g.fillStyle = 'rgba(228,214,180,0.6)';
+  // Small ivory diamonds, the way a table is marked, not dots.
+  g.fillStyle = 'rgba(233,222,196,0.72)';
   const dOff = CUSHION_DEPTH + 0.042;
   for (let i = 1; i <= 7; i++) {
     if (i === 4) continue; // side pocket
     const x = -HALF_L + (TABLE_L * i) / 8;
     for (const y of [HALF_W + dOff, -HALF_W - dOff]) {
-      g.beginPath();
-      g.arc(x, y, 0.0055, 0, TAU);
-      g.fill();
+      g.save();
+      g.translate(x, y);
+      g.rotate(Math.PI / 4);
+      g.fillRect(-0.0048, -0.0048, 0.0096, 0.0096);
+      g.restore();
     }
   }
   for (let i = 1; i <= 3; i++) {
@@ -317,7 +278,7 @@ export class Scene {
   private cx = 0;
   private cy = 0;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, private area: HTMLElement | null = null) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('canvas 2d unavailable');
@@ -348,21 +309,24 @@ export class Scene {
   private layout(w: number, h: number): void {
     const ow = this.rotated ? OUTER_W : OUTER_L;
     const oh = this.rotated ? OUTER_L : OUTER_W;
-    this.scale = Math.min((w * 0.95) / ow, (h * 0.95) / oh);
-    this.cx = w / 2;
-    this.cy = h / 2;
+    const area = this.area?.getBoundingClientRect();
+    const width = area?.width || w;
+    const height = area?.height || h;
+    this.scale = Math.min((width * 0.95) / ow, (height * 0.95) / oh);
+    this.cx = (area?.left ?? 0) + width / 2;
+    this.cy = (area?.top ?? 0) + height / 2;
   }
 
   screenToWorld(sx: number, sy: number): V2 {
     const dx = (sx - this.cx) / this.scale;
     const dy = (sy - this.cy) / this.scale;
-    if (this.rotated) return { x: dy, y: -dx };
+    if (this.rotated) return { x: -dy, y: dx };
     return { x: dx, y: dy };
   }
 
   worldToScreen(p: V2): V2 {
-    const x = this.rotated ? -p.y : p.x;
-    const y = this.rotated ? p.x : p.y;
+    const x = this.rotated ? p.y : p.x;
+    const y = this.rotated ? -p.x : p.y;
     return { x: this.cx + x * this.scale, y: this.cy + y * this.scale };
   }
 
@@ -406,6 +370,11 @@ export class Scene {
     ctx.restore();
   }
 
+  /**
+   * The aim line. Direction only: it runs from the cue ball to the cushion and
+   * stops there. It does not predict a contact, and the balls are drawn over
+   * it, so it can never be mistaken for a guide.
+   */
   private drawAim(view: ViewState): void {
     const { ctx } = this;
     const cue = view.balls.find((b) => b.id === view.cueBallId);
@@ -417,13 +386,27 @@ export class Scene {
       y: cue.p.y + dir.y * BALL_R,
     };
 
-    // Deliberately short: this is not a ghost-ball predictor.
-    const len = 0.30;
+    // Direction only. It runs to the cushion so you can see where the line is
+    // pointing at the far end, which is the judgement the short stub made
+    // impossible. It stops at the rail and predicts nothing.
+    const tX =
+      dir.x > 0
+        ? (HALF_L - BALL_R - start.x) / dir.x
+        : dir.x < 0
+          ? (-HALF_L + BALL_R - start.x) / dir.x
+          : Infinity;
+    const tY =
+      dir.y > 0
+        ? (HALF_W - BALL_R - start.y) / dir.y
+        : dir.y < 0
+          ? (-HALF_W + BALL_R - start.y) / dir.y
+          : Infinity;
+    const len = Math.max(0, Math.min(tX, tY));
     const grad = ctx.createLinearGradient(start.x, start.y, start.x + dir.x * len, start.y + dir.y * len);
-    grad.addColorStop(0, 'rgba(255,255,255,0.55)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    grad.addColorStop(0, 'rgba(255,255,255,0.42)');
+    grad.addColorStop(1, 'rgba(255,255,255,0.14)');
     ctx.strokeStyle = grad;
-    ctx.lineWidth = 0.0028;
+    ctx.lineWidth = 0.0022;
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
     ctx.lineTo(start.x + dir.x * len, start.y + dir.y * len);
@@ -651,7 +634,7 @@ export function drawBall(
       // merely slides and spins, it looks wrong.
       const u: V3 = qRotate(b.q, { x: 0, y: 1, z: 0 });
       const v: V3 = qRotate(b.q, { x: 1, y: 0, z: 0 });
-      const capR = (detail >= 2 ? 0.44 : 0.5) * R;
+      const capR = (detail >= 2 ? 0.5 : 0.54) * R;
       const alpha = Math.asin(Math.min(1, capR / R));
       const s = R * Math.sin(alpha);
       const ex = x + n.x * R * Math.cos(alpha);
@@ -670,7 +653,7 @@ export function drawBall(
       const label = String(b.id);
       const two = label.length > 1;
       const TEXT = 64;
-      const fontPx = 46;
+      const fontPx = 64;
       // Scale down instead of setting a tiny font: sub-pixel font sizes do not
       // survive Skia's text layout.
       ctx.scale(1 / TEXT, 1 / TEXT);
@@ -679,7 +662,7 @@ export function drawBall(
       ctx.textAlign = 'center';
       ctx.textBaseline = 'alphabetic';
       ctx.save();
-      if (two) ctx.scale(0.92, 1);
+      if (two) ctx.scale(0.86, 1);
       ctx.fillText(label, 0, fontPx * 0.35);
       ctx.restore();
 

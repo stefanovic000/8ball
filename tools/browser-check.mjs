@@ -26,13 +26,16 @@ await page.waitForSelector('#setup', { state: 'visible' });
 await page.waitForTimeout(300);
 await page.screenshot({ path: join(OUT, 'ui-setup.png') });
 
-// Practice mode is the default; start it.
+// Online is the default now, so pick Practice explicitly before starting.
+await page.click('#mode button[data-v="practice"]');
+await page.waitForTimeout(120);
 await page.click('#start');
 await page.waitForTimeout(600);
 await page.screenshot({ path: join(OUT, 'ui-table.png') });
 
 // Aim to the right of the cue ball and take a break.
-await page.mouse.move(760, 400);
+const aim = await page.evaluate(() => window.__game.scene.worldToScreen({ x: 0.3, y: 0 }));
+await page.mouse.move(aim.x, aim.y);
 await page.waitForTimeout(120);
 await page.mouse.down();
 await page.mouse.up();

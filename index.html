@@ -9,6 +9,7 @@
   <body>
     <div id="app">
       <canvas id="table"></canvas>
+      <div id="table-area" aria-hidden="true"></div>
 
       <div id="topbar">
         <div id="players"></div>
@@ -45,10 +46,10 @@
     <div id="setup" class="screen">
       <div class="panel">
         <h1>8<span>ball</span></h1>
-        <p class="lede">
-          A small pool simulator. Full spin, squirt, throw and real pocket jaws.
-          No aim assist.
-        </p>
+        <div class="lede">
+          <span>9ft table · 2¼ in balls</span>
+          <span>Blackball. No aim assist.</span>
+        </div>
 
         <div class="group">
           <label>Name</label>
@@ -60,14 +61,55 @@
         <div class="group">
           <label>Mode</label>
           <div class="choices" id="mode">
-            <button data-v="practice" class="on">Practice</button>
-            <button data-v="online">Online</button>
+            <button data-v="practice">Practice</button>
+            <button data-v="online" class="on">Online</button>
           </div>
           <p class="note" id="mode-note">Always your turn. Free ball in hand.</p>
         </div>
 
+        <div class="group">
+          <label>Match settings</label>
+          <div class="row">
+            <span id="rulesummary">European · 30s clock · behind line</span>
+            <button id="opensettings">Change</button>
+          </div>
+        </div>
+
+        <div class="group" id="joinrow">
+          <label>Room</label>
+          <div class="row">
+            <input id="code" placeholder="CODE" maxlength="6" autocomplete="off" spellcheck="false" />
+            <span id="hosted" class="hidden"></span>
+            <button id="joincode">Join</button>
+            <button id="create" class="primary">Create room</button>
+          </div>
+        </div>
+
+        <button id="start" class="primary wide">Start</button>
+        <p class="note dim" id="status"></p>
+      </div>
+    </div>
+
+    <div id="gameover" class="screen hidden">
+      <div class="panel narrow">
+        <h2 id="gtitle">Game over</h2>
+        <p id="gsub" class="note"></p>
+        <button id="again" class="primary wide">Play again</button>
+        <button id="tomenu" class="wide">Back to menu</button>
+      </div>
+    </div>
+
+    <div id="settings" class="screen hidden">
+      <div class="panel">
+        <h2>Match settings</h2>
         <div class="group" id="rulesset">
-          <label>Rules</label>
+          <div class="row">
+            <span>Ruleset</span>
+            <div class="choices small" id="ruleset">
+              <button data-v="european" class="on">European</button>
+              <button data-v="american">American</button>
+            </div>
+          </div>
           <div class="row">
             <span>Shot clock</span>
             <div class="choices small" id="clock">
@@ -87,32 +129,12 @@
           <div class="row">
             <span>Ball in hand</span>
             <div class="choices small" id="bih">
-              <button data-v="anywhere" class="on">anywhere</button>
-              <button data-v="behind">behind line</button>
+              <button data-v="anywhere">anywhere</button>
+              <button data-v="behind" class="on">behind line</button>
             </div>
           </div>
         </div>
-
-        <div class="group" id="joinrow">
-          <label>Room</label>
-          <div class="row">
-            <input id="code" placeholder="CODE" maxlength="6" autocomplete="off" spellcheck="false" />
-            <button id="joincode">Join</button>
-            <button id="create" class="primary">Create room</button>
-          </div>
-        </div>
-
-        <button id="start" class="primary wide">Start</button>
-        <p class="note dim" id="status"></p>
-      </div>
-    </div>
-
-    <div id="gameover" class="screen hidden">
-      <div class="panel narrow">
-        <h2 id="gtitle">Game over</h2>
-        <p id="gsub" class="note"></p>
-        <button id="again" class="primary wide">Play again</button>
-        <button id="tomenu" class="wide">Back to menu</button>
+        <button id="closesettings" class="primary wide">Done</button>
       </div>
     </div>
 

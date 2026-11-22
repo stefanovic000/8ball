@@ -1,38 +1,54 @@
 import { newRack, shoot, type Ball, type Frame, type Shot } from './core/physics';
-import { isValidPlacement, newGame, type GameState, type Rules, type Side } from './core/rules';
+import {
+  DEFAULT_RULES,
+  isValidPlacement,
+  newGame,
+  type GameState,
+  type Rules,
+  type Ruleset,
+  type Side,
+} from './core/rules';
 import { clamp, lerp } from './core/math';
 import { Scene, type ViewState } from './render/scene';
 import { SpinPicker } from './ui/spin';
+import { TableAudio } from './audio';
 import { Net } from './net/client';
 import type { ServerMsg } from '../shared/protocol';
 
 type Mode = 'practice' | 'online';
 
 const STORE_KEY = '8ball.settings';
+const SHOT_POWER = 0.55;
+const BREAK_POWER = 1;
 
 export class App {
   private scene: Scene;
   private spin: SpinPicker;
   private net: Net | null = null;
+  private audio = new TableAudio();
+  /** Code of the room this client is in, if any. */
+  private roomCode: string | null = null;
 
-  private mode: Mode = 'practice';
+  private mode: Mode = 'online';
   private side: Side = 0;
-  private rules: Rules = { shotClock: 30, calledPockets: false, ballInHand: 'anywhere' };
+  private rules: Rules = { ...DEFAULT_RULES };
   private state: GameState | null = null;
 
   private aim = 0;
-  private power = 0.55;
+  private power = SHOT_POWER;
   private placing = false;
   private hover: { x: number; y: number } | null = null;
 
   private playFrames: Frame[] = [];
   private playT = 0;
+  /** Wall-clock ms at which the current replay started. */
+  private playStart = 0;
   private playDur = 0;
   private afterPlay: (() => void) | null = null;
-  private pending: GameState | null = null;
 
-  private last = 0;
   private clockEnd = 0;
+  /** Last referee message shown, so the same call is not repeated. */
+  private lastMessage = '';
   private toastUntil = 0;
   private names: [string, string] = ['Player', 'Opponent'];
 
@@ -40,7 +56,7 @@ export class App {
 
   constructor() {
     const canvas = document.getElementById('table') as HTMLCanvasElement;
-    this.scene = new Scene(canvas);
+    this.scene = new Scene(canvas, document.getElementById('table-area'));
     this.scene.resize();
 
     const spinCanvas = document.getElementById('spin') as HTMLCanvasElement;
@@ -60,6 +76,10 @@ export class App {
       'mode-note',
       'spinlabel',
       'controls',
+      'code',
+      'hosted',
+      'joincode',
+      'create',
     ]) {
       const node = document.getElementById(id);
       if (node) this.el[id] = node;
@@ -78,10 +98,7 @@ export class App {
     window.addEventListener('resize', () => this.scene.resize());
     // Handy for the headless browser checks; harmless in production.
     (window as unknown as Record<string, unknown>).__game = this;
-    requestAnimationFrame((t) => {
-      this.last = t;
-      this.loop(t);
-    });
+    requestAnimationFrame((t) => this.loop(t));
   }
 
   // ---------------------------------------------------------------- setup
@@ -112,15 +129,27 @@ export class App {
       this.syncSetupVisibility();
     });
 
-    for (const id of ['clock', 'called', 'bih']) {
+    for (const id of ['ruleset', 'clock', 'called', 'bih']) {
       document.getElementById(id)!.addEventListener('click', (e) => {
         const b = (e.target as HTMLElement).closest('button');
         if (!b) return;
         this.pickGroup(id, b.dataset.v ?? '');
+        this.updateRulesSummary();
       });
     }
 
-    document.getElementById('create')!.addEventListener('click', () => this.createRoom());
+    // One button, two jobs: host a room, or close the one you are in.
+    document.getElementById('create')!.addEventListener('click', () => {
+      if (this.roomCode) this.leaveLobby();
+      else this.createRoom();
+    });
+    document.getElementById('opensettings')!.addEventListener('click', () => {
+      document.getElementById('settings')!.classList.remove('hidden');
+    });
+    document.getElementById('closesettings')!.addEventListener('click', () => {
+      document.getElementById('settings')!.classList.add('hidden');
+      this.updateRulesSummary();
+    });
     document.getElementById('joincode')!.addEventListener('click', () => this.joinRoom());
     document.getElementById('start')!.addEventListener('click', () => this.start());
     document.getElementById('rotate')!.addEventListener('click', () => this.toggleRotate());
@@ -138,6 +167,7 @@ export class App {
         const s = JSON.parse(saved) as { rules?: Rules; mode?: Mode };
         if (s.rules) {
           this.rules = s.rules;
+          this.pickGroup('ruleset', s.rules.ruleset ?? 'european');
           this.pickGroup('clock', String(s.rules.shotClock));
           this.pickGroup('called', s.rules.calledPockets ? '1' : '0');
           this.pickGroup('bih', s.rules.ballInHand);
@@ -148,6 +178,7 @@ export class App {
     }
 
     this.syncSetupVisibility();
+    this.updateRulesSummary();
   }
 
   private syncSetupVisibility(): void {
@@ -162,11 +193,22 @@ export class App {
     localStorage.setItem(STORE_KEY, JSON.stringify({ rules: this.rules, mode: this.mode }));
   }
 
-  private readRules(): Rules {
-    return {
+  /** One line describing the match rules, shown on the setup screen. */
+  private updateRulesSummary(): void {
+    const el = document.getElementById('rulesummary');
+    if (!el) return;
+    const r = this.readRules();
+    const set = r.ruleset === 'european' ? 'European' : 'American';
+    const clock = r.shotClock > 0 ? `${r.shotClock}s clock` : 'no clock';
+    const bih = r.ballInHand === 'behind' ? 'behind line' : 'ball in hand';
+    el.textContent = `${set} · ${clock} · ${bih}`;
+  }
+
+  private readRules(): Rules {    return {
+      ruleset: (this.readGroup('ruleset') as Ruleset) || 'european',
       shotClock: Number(this.readGroup('clock') || 30),
       calledPockets: this.readGroup('called') === '1',
-      ballInHand: (this.readGroup('bih') as 'anywhere' | 'behind') || 'anywhere',
+      ballInHand: (this.readGroup('bih') as 'anywhere' | 'behind') || 'behind',
     };
   }
 
@@ -175,6 +217,9 @@ export class App {
     this.saveSettings();
     if (this.mode === 'practice') {
       this.beginPractice();
+    } else if (this.roomCode) {
+      // Already in a room: pressing Start must not look like the room failed.
+      this.setStatus(`Waiting for an opponent. Room code ${this.roomCode} — send it to them.`);
     } else {
       this.setStatus('Create a room, or join one with a code.');
     }
@@ -188,29 +233,29 @@ export class App {
 
   private beginPractice(): void {
     this.el.setup.classList.add('hidden');
-    const balls = newRack();
-    this.state = newGame(balls);
-    this.state.onBreak = false;
-    this.state.groups = ['open', 'open'];
-    this.state.turn = 0;
-    this.aim = 0;
-    this.power = 0.55;
+    this.resetPractice();
     this.clockEnd = 0;
-    this.toast('Click to shoot. Wheel for power. Drag the ball to add spin.');
+    this.toast('Click or press Space to break.');
   }
 
   private resetPractice(): void {
-    if (!this.state) return;
     this.state = newGame(newRack());
-    this.state.onBreak = false;
-    this.state.groups = ['open', 'open'];
-    this.state.turn = 0;
+    this.playFrames = [];
+    this.afterPlay = null;
     this.placing = false;
+    this.hover = null;
+    this.aim = 0;
+    this.power = BREAK_POWER;
+    this.spin.set({ x: 0, y: 0 });
     this.toast('Fresh rack.');
   }
 
   private applyPractice(balls: Ball[]): void {
     if (!this.state) return;
+    if (this.state.onBreak) {
+      this.state.onBreak = false;
+      this.power = SHOT_POWER;
+    }
     this.state.balls = balls;
     const cue = balls.find((b) => b.id === 0)!;
     if (cue.pocketed) {
@@ -242,7 +287,10 @@ export class App {
     if (!this.net) {
       this.net = new Net();
       this.net.onMessage = (m) => this.onServer(m);
-      this.net.onClose = () => this.setStatus('Disconnected.');
+      this.net.onClose = () => {
+        this.roomCode = null;
+        this.setStatus('Disconnected.');
+      };
     }
     return this.net;
   }
@@ -260,6 +308,29 @@ export class App {
     this.ensureNet();
     this.net!.send({ t: 'create', name: this.names[0], rules: this.rules });
     this.setStatus('Creating room...');
+  }
+
+  /**
+   * While you are in a room the join box is pointless: there is nothing to
+   * join. Show the code where the box was and turn the button into a way out.
+   */
+  private showLobby(inRoom: boolean, code = ''): void {
+    this.el.code.classList.toggle('hidden', inRoom);
+    this.el.hosted.classList.toggle('hidden', !inRoom);
+    this.el.hosted.textContent = inRoom ? code : '';
+    this.el.joincode.classList.toggle('hidden', inRoom);
+    this.el.create.textContent = inRoom ? 'Close lobby' : 'Create room';
+    this.el.create.classList.toggle('primary', !inRoom);
+  }
+
+  private leaveLobby(): void {
+    this.net?.send({ t: 'leave' });
+    this.roomCode = null;
+    this.state = null;
+    this.playFrames = [];
+    this.showLobby(false);
+    this.el.room.classList.add('hidden');
+    this.setStatus('Left the room.');
   }
 
   private joinRoom(): void {
@@ -286,8 +357,12 @@ export class App {
         this.rules = m.room.rules;
         this.el.room!.textContent = m.room.code;
         this.el.room!.classList.remove('hidden');
+        this.roomCode = m.room.code;
+        this.showLobby(true, m.room.code);
         this.setStatus(
-          m.room.names[1] ? 'Opponent connected. Starting...' : 'Waiting for an opponent.',
+          m.room.names[1]
+            ? 'Opponent connected. Starting...'
+            : `Waiting for an opponent. Room code ${m.room.code} — send it to them.`,
         );
         break;
       }
@@ -295,18 +370,31 @@ export class App {
         this.el.setup.classList.add('hidden');
         this.el.gameover.classList.add('hidden');
         this.state = m.state;
+        this.aim = 0;
+        this.spin.set({ x: 0, y: 0 });
+        this.power = m.state.onBreak && m.state.turn === this.side ? BREAK_POWER : SHOT_POWER;
         this.placing = m.state.ballInHand && m.state.turn === this.side;
         this.resetClock();
         this.toast(m.state.turn === this.side ? 'Your break.' : 'Opponent breaks.');
         break;
       }
       case 'shot': {
-        this.pending = m.state;
-        if (m.by !== this.side && this.state) {
-          const res = shoot(this.state.balls, m.shot);
+        // The server is authoritative, so take its state immediately and treat
+        // the animation as decoration. Otherwise a hidden tab holds back the
+        // real board, and a second shot would be re-simulated from a stale one.
+        const before = this.state;
+        this.adopt(m.state);
+        if (m.by !== this.side && before) {
+          const res = shoot(before.balls, m.shot, 0, before.onBreak);
+          // The server already resolved this shot; re-simulating is only for
+          // the animation. If the two disagree this client is running
+          // different physics, so play its version for the motion but let the
+          // server's board win the moment the shot ends.
+          if (maxDrift(res.balls, m.state.balls) > 0.001) {
+            console.warn('physics mismatch with the server; correcting to its board when the shot ends');
+          }
+          this.audio.play(res.events);
           this.startReplay(res.frames);
-        } else {
-          // our own shot: we already animated it
         }
         break;
       }
@@ -319,13 +407,34 @@ export class App {
         this.toast(m.message);
         break;
       }
+      case 'bye': {
+        // The room is gone on the server; put the setup screen back.
+        this.roomCode = null;
+        this.state = null;
+        this.playFrames = [];
+        this.showLobby(false);
+        this.el.room.classList.add('hidden');
+        this.el.setup.classList.remove('hidden');
+        this.el.gameover.classList.add('hidden');
+        this.setStatus('The other player left.');
+        this.toast('The other player left.');
+        break;
+      }
       default:
         break;
     }
   }
 
   private adopt(s: GameState): void {
+    if (this.state?.onBreak && this.state.turn === this.side && !s.onBreak) {
+      this.power = SHOT_POWER;
+    }
     this.state = s;
+    // Say what the referee decided: a foul reason, or the visits left.
+    if (s.message !== this.lastMessage) {
+      this.lastMessage = s.message;
+      if (s.message) this.toast(s.message);
+    }
     this.placing = s.ballInHand && s.turn === this.side;
     this.resetClock();
     if (s.over) {
@@ -458,7 +567,7 @@ export class App {
           break;
         case 'n':
         case 'N':
-          if (this.mode === 'practice') this.resetPractice();
+          if (this.mode === 'practice' && this.state) this.resetPractice();
           break;
         case 'Escape':
           location.reload();
@@ -507,11 +616,15 @@ export class App {
   private doShoot(): void {
     if (!this.canShoot() || !this.state) return;
     const shot: Shot = { aim: this.aim, power: this.power, spin: { ...this.spin.value } };
-    const res = shoot(this.state.balls, shot);
+    const res = shoot(this.state.balls, shot, 0, this.state.onBreak);
     if (this.mode === 'practice') {
+      this.audio.cue(this.power);
+      this.audio.play(res.events);
       this.startReplay(res.frames, () => this.applyPractice(res.balls));
       return;
     }
+    this.audio.cue(this.power);
+    this.audio.play(res.events);
     this.net?.send({ t: 'shot', shot });
     this.clockEnd = 0;
     this.startReplay(res.frames);
@@ -526,6 +639,7 @@ export class App {
     }
     this.playFrames = frames;
     this.playT = 0;
+    this.playStart = Date.now();
     this.playDur = frames[frames.length - 1].t;
     this.afterPlay = done ?? null;
   }
@@ -537,11 +651,6 @@ export class App {
     this.afterPlay = null;
     done?.();
     this.spin.set({ x: 0, y: 0 });
-    if (this.pending) {
-      const s = this.pending;
-      this.pending = null;
-      this.adopt(s);
-    }
   }
 
   private displayBalls(): Ball[] {
@@ -589,11 +698,11 @@ export class App {
   // ---------------------------------------------------------------- frame
 
   private loop(now: number): void {
-    const dt = Math.min(0.05, (now - this.last) / 1000);
-    this.last = now;
-
     if (this.playFrames.length > 0) {
-      this.playT += dt;
+      // Wall clock, not accumulated frame deltas. A hidden tab stops getting
+      // frames, and a paused animation must not hold the board - or the turn -
+      // back once the tab is visible again: by then the shot is over.
+      this.playT = (Date.now() - this.playStart) / 1000;
       if (this.playT >= this.playDur) {
         this.playT = this.playDur;
         this.endPlayback();
@@ -603,7 +712,6 @@ export class App {
     if (this.clockEnd && now > this.clockEnd) {
       this.clockEnd = 0;
       this.toast('Shot clock expired.');
-      if (this.mode === 'online') this.net?.send({ t: 'timeout' });
     }
 
     this.draw();
@@ -695,4 +803,18 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) =>
     c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '"' ? '&quot;' : '&#39;',
   );
+}
+
+/**
+ * How far apart two resolved tables are, in metres. Infinite when they disagree
+ * about which balls went down, since a position difference is meaningless then.
+ */
+function maxDrift(a: Ball[], b: Ball[]): number {
+  if (a.length !== b.length) return Infinity;
+  let worst = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].pocketed !== b[i].pocketed) return Infinity;
+    worst = Math.max(worst, Math.hypot(a[i].p.x - b[i].p.x, a[i].p.y - b[i].p.y));
+  }
+  return worst;
 }
