@@ -5,6 +5,7 @@ import {
   E_BALL,
   E_RAIL,
   G,
+  MAX_BREAK_SPEED,
   MAX_CUE_SPEED,
   MU_BALL,
   MU_RAIL,
@@ -89,21 +90,19 @@ export const makeBall = (id: number, x: number, y: number): Ball => ({
 });
 
 /**
- * Balls are racked essentially touching: 0.8mm apart, which is under half a
- * pixel on screen and reads as a tight rack.
+ * Keep the rack close to touching with room for the small offsets below.
  */
-const RACK_SPACING = 2 * BALL_R + 0.0008;
+const RACK_SPACING = 2 * BALL_R + 0.00016;
 
 /**
  * A real rack is never perfectly tight. With a mathematically perfect triangle
  * the break behaves like a Newton's cradle: the impulse runs straight through
- * and only the back of the rack moves. Under a millimetre of deterministic
- * jitter is enough to make the pack scatter, and still leaves every pair of
- * balls clear of each other.
+ * and only the back of the rack moves. Small deterministic offsets break the
+ * symmetry without closing the clearance between any two balls.
  */
 function rackJitter(seed: number): number {
   const x = Math.sin(seed * 12.9898) * 43758.5453;
-  return (x - Math.floor(x) - 0.5) * 0.0016;
+  return (x - Math.floor(x) - 0.5) * 0.00014;
 }
 
 /**
@@ -156,12 +155,12 @@ function slipSpeed(b: Ball): number {
   return Math.hypot(u.x, u.y);
 }
 
+function movingOnCloth(b: Ball): boolean {
+  return Math.hypot(b.v.x, b.v.y) >= REST_V || slipSpeed(b) >= REST_V;
+}
+
 function atRest(b: Ball): boolean {
-  return (
-    Math.hypot(b.v.x, b.v.y) < REST_V &&
-    slipSpeed(b) < REST_V &&
-    Math.abs(b.w.z) < REST_W
-  );
+  return !movingOnCloth(b) && Math.abs(b.w.z) < REST_W;
 }
 
 /**
@@ -171,7 +170,7 @@ function atRest(b: Ball): boolean {
  * the spin. Nothing is faked on top: hitting above centre really does leave the
  * ball with more spin than rolling needs, which is why it then runs forward.
  */
-export function applyShot(cue: Ball, shot: Shot): void {
+export function applyShot(cue: Ball, shot: Shot, onBreak = false): void {
   const power = clamp(shot.power, 0, 1);
   let a = clamp(shot.spin.x, -0.5, 0.5);
   let b = clamp(shot.spin.y, -0.5, 0.5);
@@ -182,7 +181,7 @@ export function applyShot(cue: Ball, shot: Shot): void {
     b = (b / off) * 0.5;
   }
 
-  const speed = MAX_CUE_SPEED * power;
+  const speed = (onBreak ? MAX_BREAK_SPEED : MAX_CUE_SPEED) * power;
   const d: V2 = { x: Math.cos(shot.aim), y: Math.sin(shot.aim) };
   const side: V2 = { x: -d.y, y: d.x };
 
@@ -287,7 +286,7 @@ function timeToRail(b: Ball, c: Cushion): number {
   const px = b.p.x + b.v.x * t;
   const py = b.p.y + b.v.y * t;
   const span = cushionSpan(c, px, py);
-  if (span < -0.02 || span > 1.02) return Infinity;
+  if (span < 0 || span > 1) return Infinity;
   return t;
 }
 
@@ -343,7 +342,7 @@ function resolveBallBall(a: Ball, b: Ball, ev: SimEvent[], t: number): boolean {
   const vb = add3(v3(b.v.x, b.v.y, 0), cross3(b.w, cb));
   const ur = sub3(vb, va);
   const vn = dot3(ur, n3);
-  if (vn > 0) return false;
+  if (vn >= 0) return true;
 
   const k = 2 / BALL_M;
   const jn = (-(1 + E_BALL) * vn) / k;
@@ -390,7 +389,7 @@ function resolveCushion(b: Ball, c: Cushion, ev: SimEvent[], t: number): boolean
   const s = (b.p.x - c.ax) * c.nx + (b.p.y - c.ay) * c.ny;
   if (s >= BALL_R - 1e-7) return false;
   const span = cushionSpan(c, b.p.x, b.p.y);
-  if (span < -0.02 || span > 1.02) return false;
+  if (span < 0 || span > 1) return false;
 
   b.p.x += c.nx * (BALL_R - s);
   b.p.y += c.ny * (BALL_R - s);
@@ -399,7 +398,7 @@ function resolveCushion(b: Ball, c: Cushion, ev: SimEvent[], t: number): boolean
   const n3 = v3(c.nx, c.ny, 0);
   const u = add3(v3(b.v.x, b.v.y, 0), cross3(b.w, cp));
   const vn = dot3(u, n3);
-  if (vn >= 0) return false;
+  if (vn >= 0) return true;
 
   const rn = cross3(cp, n3);
   const k = 1 / BALL_M + dot3(rn, rn) / BALL_I;
@@ -445,7 +444,7 @@ function resolveJaw(b: Ball, j: V2, ev: SimEvent[], t: number): boolean {
   const n3 = v3(nx, ny, 0);
   const u = add3(v3(b.v.x, b.v.y, 0), cross3(b.w, cp));
   const vn = dot3(u, n3);
-  if (vn >= 0) return false;
+  if (vn >= 0) return true;
 
   const k = 1 / BALL_M;
   const jn = (-(1 + E_RAIL) * vn) / k;
@@ -494,7 +493,7 @@ export function simulate(balls: Ball[]): { events: SimEvent[]; frames: Frame[] }
     const active = balls.filter((b) => !b.pocketed);
     let moving = false;
     for (const b of active) {
-      if (!atRest(b)) moving = true;
+      if (movingOnCloth(b)) moving = true;
       else {
         b.v.x = 0;
         b.v.y = 0;
@@ -503,7 +502,12 @@ export function simulate(balls: Ball[]): { events: SimEvent[]; frames: Frame[] }
         if (Math.abs(b.w.z) < REST_W) b.w.z = 0;
       }
     }
-    if (!moving) break;
+    // Side spin still affects contacts during the shot. Once all balls are
+    // stationary on the cloth it cannot move anything or change the outcome.
+    if (!moving) {
+      for (const b of active) b.w.z = 0;
+      break;
+    }
 
     let dt = 0.25;
 
@@ -602,11 +606,12 @@ export function shoot(
   input: Ball[],
   shot: Shot,
   cueBallId = 0,
+  onBreak = false,
 ): { balls: Ball[]; events: SimEvent[]; frames: Frame[] } {
   const balls = cloneBalls(input);
   const cue = balls.find((b) => b.id === cueBallId);
   if (!cue || cue.pocketed) return { balls, events: [], frames: [] };
-  applyShot(cue, shot);
+  applyShot(cue, shot, onBreak);
   const { events, frames } = simulate(balls);
   return { balls, events, frames };
 }

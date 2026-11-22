@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newRack, type SimEvent } from '../src/core/physics';
 import {
   DEFAULT_RULES,
+  applyOutcome,
   judgeShot,
   newGame,
   type GameState,
@@ -32,6 +33,54 @@ function clearSolids(s: GameState): GameState {
   }
   return s;
 }
+
+describe('european ruleset', () => {
+  const onBreak = () => {
+    const s = newGame(newRack());
+    s.onBreak = true;
+    return s;
+  };
+
+  it('fouls a break that neither pots nor drives two balls to a cushion', () => {
+    const out = judgeShot(onBreak(), [contact(1), rail(1)], DEFAULT_RULES);
+    expect(out.foul).toBe(true);
+    expect(out.foulReason).toMatch(/two to a cushion/);
+  });
+
+  it('accepts a break that drives two balls to a cushion', () => {
+    const out = judgeShot(onBreak(), [contact(1), rail(1), rail(2)], DEFAULT_RULES);
+    expect(out.foul).toBe(false);
+  });
+
+  it('lets the break off with only one ball moving under american rules', () => {
+    const rules = { ...DEFAULT_RULES, ruleset: 'american' as const };
+    const out = judgeShot(onBreak(), [contact(1), rail(1)], rules);
+    expect(out.foul).toBe(false);
+  });
+
+  it('gives the opponent two visits after a foul', () => {
+    const s = state();
+    const out = judgeShot(s, [contact(1), pocket(0)], DEFAULT_RULES);
+    expect(out.foul).toBe(true);
+    expect(out.carry).toBe(2);
+  });
+
+  it('keeps the turn on the first miss of a carried visit', () => {
+    const s = state(['solids', 'stripes'], { carry: 2 });
+    const out = judgeShot(s, [contact(1), rail(1)], DEFAULT_RULES);
+    applyOutcome(s, out, s.balls);
+    expect(s.turn).toBe(0);
+    expect(s.carry).toBe(1);
+  });
+
+  it('hands the turn over on the second miss', () => {
+    const s = state(['solids', 'stripes'], { carry: 1 });
+    const out = judgeShot(s, [contact(1), rail(1)], DEFAULT_RULES);
+    applyOutcome(s, out, s.balls);
+    expect(s.turn).toBe(1);
+    expect(s.carry).toBe(0);
+  });
+});
 
 describe('fouls', () => {
   it('accepts a legal pot', () => {

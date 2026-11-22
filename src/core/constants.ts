@@ -10,8 +10,8 @@ export const G = 9.81;
 
 /** Kinetic friction while the contact point is slipping. */
 export const MU_SLIDE = 0.2;
-/** Rolling resistance once the ball is in pure rolling. ~0.39 m/s^2 of decel. */
-export const MU_ROLL = 0.04;
+/** Rolling resistance once the ball is in pure rolling. ~0.20 m/s^2 of decel. */
+export const MU_ROLL = 0.02;
 /** Tangential friction between two balls. Drives throw and spin transfer. */
 export const MU_BALL = 0.06;
 /** Tangential friction on the cushion. Drives english off the rails. */
@@ -44,8 +44,10 @@ export const SIDE_GAP = 0.064;
 /** Radius of the rounded jaw at the end of each cushion. Sharp, like a cut. */
 export const JAW_R = 0.004;
 
-/** Top of the power bar. A firm shot, not a pro break. */
-export const MAX_CUE_SPEED = 5.2;
+/** Top of the power bar on a regular shot. */
+export const MAX_CUE_SPEED = 3.6;
+/** A firm opening break can use more cue speed. */
+export const MAX_BREAK_SPEED = 8;
 
 /** Sidespin makes the cue ball leave the tip at an angle. Radians per R of offset. */
 export const SQUIRT_PER_R = 0.10; // ~0.05 rad / 2.9 deg at maximum offset

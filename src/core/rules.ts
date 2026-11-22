@@ -4,7 +4,14 @@ import { BALL_R, HALF_L, HALF_W, TABLE_L } from './constants';
 export type Side = 0 | 1;
 export type Group = 'open' | 'solids' | 'stripes';
 
+export type Ruleset = 'european' | 'american';
+
 export type Rules = {
+  /**
+   * European blackball: two shots after a foul, and a break that must pot or
+   * drive two object balls to a cushion. American: ball in hand, one shot.
+   */
+  ruleset: Ruleset;
   /** Seconds per shot, 0 disables the clock. */
   shotClock: number;
   /** Requires the pocket to be chosen before the shot. */
@@ -13,9 +20,10 @@ export type Rules = {
 };
 
 export const DEFAULT_RULES: Rules = {
+  ruleset: 'european',
   shotClock: 30,
   calledPockets: false,
-  ballInHand: 'anywhere',
+  ballInHand: 'behind',
 };
 
 export type GameState = {
@@ -25,6 +33,11 @@ export type GameState = {
   /** True until the break shot has been taken. */
   onBreak: boolean;
   ballInHand: boolean;
+  /**
+   * Shots the current player may still take without losing the turn. Blackball
+   * hands the opponent two visits after a foul.
+   */
+  carry: number;
   /** Pocket the shooter called, if called pockets are on. */
   called: number | null;
   over: { winner: Side; reason: string } | null;
@@ -43,6 +56,8 @@ export type ShotOutcome = {
   win: Side | null;
   rerack: boolean;
   continues: boolean;
+  /** Visits the next player gets as a result of this shot (blackball). */
+  carry: number;
 };
 
 export const groupOf = (id: number): Group =>
@@ -60,6 +75,7 @@ export function newGame(balls: Ball[]): GameState {
     groups: ['open', 'open'],
     onBreak: true,
     ballInHand: false,
+    carry: 0,
     called: null,
     over: null,
     message: '',
@@ -102,6 +118,7 @@ export function judgeShot(
     win: null,
     rerack: false,
     continues: false,
+    carry: 0,
   };
 
   const me = state.turn;
@@ -116,7 +133,18 @@ export function judgeShot(
     if (cuePocketed) {
       out.foul = true;
       out.foulReason = 'scratch on the break';
+    } else if (rules.ruleset === 'european' && objectPocketed.length === 0) {
+      // Blackball asks more of a break than "something moved".
+      const railed = new Set<number>();
+      for (const e of events) {
+        if (e.type === 'rail' && e.id !== 0) railed.add(e.id);
+      }
+      if (railed.size < 2) {
+        out.foul = true;
+        out.foulReason = 'break must pot a ball or drive two to a cushion';
+      }
     }
+    out.carry = out.foul && rules.ruleset === 'european' ? 2 : 0;
     out.continues = !out.foul && objectPocketed.length > 0;
     return out;
   }
@@ -193,6 +221,9 @@ export function judgeShot(
     });
   }
 
+  // Blackball: a foul costs the offender two visits, not just the turn.
+  if (out.foul && rules.ruleset === 'european') out.carry = 2;
+
   return out;
 }
 
@@ -210,26 +241,38 @@ export function applyOutcome(
       winner: out.win,
       reason: out.win === state.turn ? 'pocketed the 8' : 'pocketed the 8 early',
     };
+    state.carry = 0;
     return;
   }
 
   if (out.foul) {
     state.turn = (1 - state.turn) as Side;
     state.ballInHand = true;
+    state.carry = out.carry;
     state.message = out.foulReason;
     state.called = null;
     return;
   }
 
-  if (!out.continues) {
-    state.turn = (1 - state.turn) as Side;
-    state.message = '';
-  } else {
-    state.message = '';
-  }
-
   state.ballInHand = false;
   state.called = null;
+
+  if (out.continues) {
+    state.carry = 0;
+    state.message = '';
+    return;
+  }
+
+  // A miss spends one carried visit instead of the turn.
+  if (state.carry > 1) {
+    state.carry -= 1;
+    state.message = 'One visit left';
+    return;
+  }
+
+  state.turn = (1 - state.turn) as Side;
+  state.carry = 0;
+  state.message = '';
 }
 
 export function isValidPlacement(

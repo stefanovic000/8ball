@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { createGameServer, type GameServer } from '../server/game';
 import type { ClientMsg, ServerMsg } from '../shared/protocol';
+import { shoot } from '../src/core/physics';
 
 /** Small test client that can wait for a particular message type. */
 class TestClient {
@@ -80,7 +81,7 @@ describe('rooms', () => {
     a.send({
       t: 'create',
       name: 'Ana',
-      rules: { shotClock: 0, calledPockets: false, ballInHand: 'anywhere' },
+      rules: { ruleset: 'american', shotClock: 0, calledPockets: false, ballInHand: 'anywhere' },
     });
     const room = await a.next('room');
     expect(room.room.code).toHaveLength(4);
@@ -94,11 +95,14 @@ describe('rooms', () => {
     expect(startB.state.balls).toHaveLength(16);
     expect(startA.state.turn).toBe(0);
 
-    // Break, weakly, so nothing is potted and the turn passes.
-    a.send({ t: 'shot', shot: { aim: 0, power: 0.05, spin: { x: 0, y: 0 } } });
-    const shot = await a.next('shot');
+    const opening = { aim: 0, power: 1, spin: { x: 0, y: 0 } };
+    a.send({ t: 'shot', shot: opening });
+    const [shot, otherShot] = await Promise.all([a.next('shot'), b.next('shot')]);
     expect(shot.by).toBe(0);
     expect(shot.state.turn).toBe(1);
+    expect(shot.state.onBreak).toBe(false);
+    expect(otherShot.state).toEqual(shot.state);
+    expect(shot.state.balls).toEqual(shoot(startA.state.balls, opening, 0, true).balls);
 
     // Player A cannot shoot out of turn.
     a.send({ t: 'shot', shot: { aim: 0, power: 0.9, spin: { x: 0, y: 0 } } });
@@ -111,7 +115,7 @@ describe('rooms', () => {
 
   it('rejects an impossible spin offset', async () => {
     const a = await TestClient.open(port);
-    a.send({ t: 'create', name: 'A', rules: { shotClock: 0, calledPockets: false, ballInHand: 'anywhere' } });
+    a.send({ t: 'create', name: 'A', rules: { ruleset: 'american', shotClock: 0, calledPockets: false, ballInHand: 'anywhere' } });
     const room = await a.next('room');
     const b = await TestClient.open(port);
     b.send({ t: 'join', name: 'B', code: room.room.code });

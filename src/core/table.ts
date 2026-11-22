@@ -58,10 +58,30 @@ export const POCKETS: V2[] = [
   { x: 0, y: HALF_W },
 ];
 
-/** Jaw centres live at both ends of every cushion segment. */
+/** The line a ball crosses at each pocket, and the direction into its well. */
+export const POCKET_MOUTHS = POCKETS.map((p, i) => {
+  const sx = Math.sign(p.x);
+  const sy = Math.sign(p.y);
+  if (i < 4) {
+    return {
+      a: { x: p.x - sx * CORNER_GAP, y: p.y },
+      b: { x: p.x, y: p.y - sy * CORNER_GAP },
+      outward: { x: sx * Math.SQRT1_2, y: sy * Math.SQRT1_2 },
+      corner: true,
+    };
+  }
+  return {
+    a: { x: -SIDE_GAP, y: p.y },
+    b: { x: SIDE_GAP, y: p.y },
+    outward: { x: 0, y: sy },
+    corner: false,
+  };
+});
+
+/** The rounded ends are tangent to the cushion nose, one radius behind it. */
 export const JAWS: V2[] = CUSHIONS.flatMap((c) => [
-  { x: c.ax, y: c.ay },
-  { x: c.bx, y: c.by },
+  { x: c.ax - c.nx * JAW_R, y: c.ay - c.ny * JAW_R },
+  { x: c.bx - c.nx * JAW_R, y: c.by - c.ny * JAW_R },
 ]);
 
 export const JAW_RADIUS = JAW_R;

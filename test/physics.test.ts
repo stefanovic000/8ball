@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { BALL_R, HALF_L, HALF_W } from '../src/core/constants';
+import { BALL_R, HALF_L, HALF_W, SIDE_GAP } from '../src/core/constants';
 import { makeBall, newRack, shoot, type Ball } from '../src/core/physics';
+import { CUSHIONS, JAWS, JAW_RADIUS, POCKET_MOUTHS } from '../src/core/table';
 
 const cue = (x: number): Ball => makeBall(0, x, 0);
 
@@ -18,7 +19,7 @@ describe('rack', () => {
     for (let i = 0; i < balls.length; i++) {
       for (let j = i + 1; j < balls.length; j++) {
         const d = Math.hypot(balls[i].p.x - balls[j].p.x, balls[i].p.y - balls[j].p.y);
-        expect(d).toBeGreaterThan(2 * BALL_R - 0.001);
+        expect(d).toBeGreaterThanOrEqual(2 * BALL_R);
       }
     }
   });
@@ -98,8 +99,16 @@ describe('cue strike', () => {
 });
 
 describe('simulation', () => {
-  it('settles completely', () => {
-    const res = shoot(newRack(), { aim: 0, power: 0.9, spin: { x: 0, y: 0 } });
+  it('spreads the rack and settles after a full-power opening break', () => {
+    const rack = newRack();
+    const res = shoot(rack, { aim: 0, power: 1, spin: { x: 0, y: 0 } }, 0, true);
+    const railBalls = new Set(res.events.flatMap((e) => e.type === 'rail' && e.id !== 0 ? [e.id] : []));
+    expect(railBalls.size).toBeGreaterThanOrEqual(4);
+    const spread = res.balls.slice(1).filter((b, i) =>
+      Math.hypot(b.p.x - rack[i + 1].p.x, b.p.y - rack[i + 1].p.y) > 0.1,
+    );
+    expect(spread.length).toBeGreaterThanOrEqual(8);
+    expect(res.frames.at(-1)!.t).toBeLessThan(6);
     for (const b of res.balls) {
       expect(Math.hypot(b.v.x, b.v.y)).toBeLessThan(0.01);
     }
@@ -132,25 +141,39 @@ describe('simulation', () => {
     expect(res.balls[0].p.x).toBeLessThan(HALF_L);
   });
 
-  it('stops on the cushion line, never inside it', () => {
-    // Fired hard along y: the ball's centre may reach the rail line minus its
-    // radius and not one millimetre further, which is where the cushion is
-    // drawn.
-    const res = shoot([cue(-0.6)], { aim: Math.PI / 2, power: 1, spin: { x: 0, y: 0 } });
-    let maxY = -Infinity;
-    for (const f of res.frames) maxY = Math.max(maxY, f.data[1]);
-    expect(maxY).toBeLessThanOrEqual(HALF_W - BALL_R + 1e-4);
-    expect(maxY).toBeGreaterThan(HALF_W - BALL_R - 0.002);
+  it('bounces with the edge of the ball flush to each cushion nose', () => {
+    for (const c of CUSHIONS) {
+      const x = (c.ax + c.bx) / 2 + c.nx * 0.25;
+      const y = (c.ay + c.by) / 2 + c.ny * 0.25;
+      const aim = Math.atan2(-c.ny, -c.nx);
+      const res = shoot([makeBall(0, x, y)], { aim, power: 1, spin: { x: 0, y: 0 } });
+      const closest = Math.min(...res.frames.map((f) =>
+        (f.data[0] - c.ax) * c.nx + (f.data[1] - c.ay) * c.ny,
+      ));
+      expect(closest).toBeCloseTo(BALL_R, 5);
+      expect(res.events[0]?.type).toBe('rail');
+    }
   });
 
-  it('drops a ball into a corner pocket', () => {
-    const st = makeBall(1, 1.05, 0.42);
-    const res = shoot(
-      [st],
-      { aim: Math.atan2(0.635 - 0.42, 1.27 - 1.05), power: 0.35, spin: { x: 0, y: 0 } },
-      1,
-    );
-    expect(res.balls[0].pocketed).toBe(true);
+  it('drops a ball through the centre of all six pockets', () => {
+    for (const { a, b, outward } of POCKET_MOUTHS) {
+      const x = (a.x + b.x) / 2 - outward.x * 0.22;
+      const y = (a.y + b.y) / 2 - outward.y * 0.22;
+      const aim = Math.atan2(outward.y, outward.x);
+      const res = shoot([makeBall(0, x, y)], { aim, power: 0.35, spin: { x: 0, y: 0 } });
+      expect(res.events.map((e) => e.type)).toEqual(['pocket']);
+      expect(res.balls[0].pocketed).toBe(true);
+    }
+  });
+
+  it('catches a glancing shot on the rounded jaw instead of an extended rail', () => {
+    const start = makeBall(0, -SIDE_GAP + 0.012, HALF_W - 0.2);
+    const res = shoot([start], { aim: Math.PI / 2, power: 0.25, spin: { x: 0, y: 0 } });
+    expect(res.events.map((e) => e.type)).toEqual(['jaw']);
+    expect(res.balls[0].pocketed).toBe(false);
+    const jaw = JAWS[1];
+    const closest = Math.min(...res.frames.map((f) => Math.hypot(f.data[0] - jaw.x, f.data[1] - jaw.y)));
+    expect(closest).toBeCloseTo(BALL_R + JAW_RADIUS, 5);
   });
 
   it('stops a ball from rolling forever', () => {

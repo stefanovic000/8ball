@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BALL_SHEET_CELL, BALL_SHEET_PAD, renderBallSheet, renderTable } from '../tools/scene-render';
 import { OUTER_L, OUTER_W } from '../src/render/scene';
 import { newRack } from '../src/core/physics';
+import { HALF_L } from '../src/core/constants';
 
 /** Same fit the scene uses, so pixel probes land where the geometry is. */
 const fit = (w: number, h: number): { scale: number; cx: number; cy: number } => ({
@@ -58,6 +59,15 @@ describe('table image', () => {
     const sy = cy - 0.635 * scale;
     const [r, g, b] = at(px, sx, sy);
     expect(r + g + b).toBeLessThan(70);
+  });
+
+  it('draws the short cushions outside the playing area', () => {
+    const { scale, cx, cy } = fit(1600, 820);
+    for (const side of [-1, 1]) {
+      const [r, g, b] = at(px, cx + side * (HALF_L + 0.025) * scale, cy);
+      expect(g).toBeGreaterThan(r + 15);
+      expect(g).toBeGreaterThan(b + 10);
+    }
   });
 
   it('draws the cue ball white', () => {
