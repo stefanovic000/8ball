@@ -10,6 +10,7 @@ export type ClientMsg =
   | { t: 'rules'; rules: Rules }
   | { t: 'start' }
   | { t: 'shot'; shot: Shot }
+  | { t: 'aim'; aim: number; power: number }
   | { t: 'place'; x: number; y: number }
   | { t: 'timeout' }
   | { t: 'rematch' }
@@ -31,6 +32,7 @@ export type ServerMsg =
   | { t: 'shot'; by: Side; shot: Shot; state: WebState }
   | { t: 'state'; state: WebState }
   | { t: 'peer'; joined: boolean; name: string }
+  | { t: 'aim'; side: Side; aim: number; power: number }
   | { t: 'error'; message: string }
   | { t: 'bye' };
 

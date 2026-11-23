@@ -99,14 +99,19 @@ describe('rooms', () => {
     a.send({ t: 'shot', shot: opening });
     const [shot, otherShot] = await Promise.all([a.next('shot'), b.next('shot')]);
     expect(shot.by).toBe(0);
-    expect(shot.state.turn).toBe(1);
+    // Potting on the break keeps the table, so the turn only passes on a dry
+    // break. Which one happens depends on the friction, so follow the outcome
+    // rather than assuming it.
+    const potted = shot.state.balls.filter((b) => b.pocketed).length;
+    expect(shot.state.turn).toBe(potted > 0 ? 0 : 1);
     expect(shot.state.onBreak).toBe(false);
     expect(otherShot.state).toEqual(shot.state);
     expect(shot.state.balls).toEqual(shoot(startA.state.balls, opening, 0, true).balls);
 
-    // Player A cannot shoot out of turn.
-    a.send({ t: 'shot', shot: { aim: 0, power: 0.9, spin: { x: 0, y: 0 } } });
-    const err = await a.next('error');
+    // Whoever is not on strike cannot shoot.
+    const waiting = shot.state.turn === 0 ? b : a;
+    waiting.send({ t: 'shot', shot: { aim: 0, power: 0.9, spin: { x: 0, y: 0 } } });
+    const err = await waiting.next('error');
     expect(err.message).toMatch(/Not your turn/);
 
     a.close();

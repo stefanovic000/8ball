@@ -18,6 +18,8 @@ export type ViewState = {
   power: number;
   spin: V2;
   showAim: boolean;
+  /** Where the other player is lining up, if they are on strike. */
+  peerAim?: { aim: number; power: number } | null;
   placing: boolean;
   hover: V2 | null;
 };
@@ -359,6 +361,16 @@ export class Scene {
       ctx.drawImage(this.layer, -OUTER_L / 2, -OUTER_W / 2, OUTER_L, OUTER_W);
     }
 
+    if (view.peerAim) {
+      const cue = view.balls.find((b) => b.id === view.cueBallId);
+      if (cue && !cue.pocketed) {
+        const dir = { x: Math.cos(view.peerAim.aim), y: Math.sin(view.peerAim.aim) };
+        // Drawn behind everything, in its own colour: it is their cue, not
+        // yours, and it must not be mistaken for your own.
+        drawCueStick(ctx, cue.p, dir, view.peerAim.power, 0.85, true);
+      }
+    }
+
     if (view.showAim && !view.placing) this.drawAim(view);
     for (const b of view.balls) {
       if (b.pocketed) continue;
@@ -413,38 +425,67 @@ export class Scene {
     ctx.stroke();
 
     // cue stick: a tapered shape, not a line, so it reads as a cue
-    const back = 0.018 + view.power * 0.07;
-    const bx = cue.p.x - dir.x * (BALL_R + back);
-    const by = cue.p.y - dir.y * (BALL_R + back);
-    const px = -dir.y;
-    const py = dir.x;
-    const cueLen = 0.46;
-    const ex = bx - dir.x * cueLen;
-    const ey = by - dir.y * cueLen;
-    const tipW = 0.0032;
-    const buttW = 0.0068;
-    const g2 = ctx.createLinearGradient(bx, by, ex, ey);
+    drawCueStick(ctx, cue.p, dir, view.power, 1);
+  }
+}
+
+/**
+ * The cue, pulled back by `power`. `alpha` lets the other player's cue be drawn
+ * as a ghost, so you can see what they are lining up without it being confused
+ * with your own.
+ */
+function drawCueStick(
+  ctx: CanvasRenderingContext2D,
+  from: V2,
+  dir: V2,
+  power: number,
+  alpha: number,
+  ghost = false,
+): void {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  const back = 0.018 + power * 0.07;
+  const bx = from.x - dir.x * (BALL_R + back);
+  const by = from.y - dir.y * (BALL_R + back);
+  const px = -dir.y;
+  const py = dir.x;
+  const cueLen = 0.46;
+  const ex = bx - dir.x * cueLen;
+  const ey = by - dir.y * cueLen;
+  const tipW = 0.0032;
+  const buttW = 0.0068;
+  const g2 = ctx.createLinearGradient(bx, by, ex, ey);
+  if (ghost) {
+    // The real cue's browns disappear against the cloth at low opacity, so the
+    // other player's cue gets its own light colour rather than a dimmed copy.
+    g2.addColorStop(0, 'rgba(240,247,243,0.95)');
+    g2.addColorStop(0.35, 'rgba(226,238,232,0.5)');
+    g2.addColorStop(1, 'rgba(226,238,232,0)');
+  } else {
     g2.addColorStop(0, '#efe3c6');
     g2.addColorStop(0.04, '#cbb17a');
     g2.addColorStop(0.1, '#7a5c3c');
     g2.addColorStop(0.22, '#3d2a1c');
     g2.addColorStop(0.75, 'rgba(44,31,22,0.75)');
     g2.addColorStop(1, 'rgba(40,28,20,0)');
-    ctx.fillStyle = g2;
-    ctx.beginPath();
-    ctx.moveTo(bx + px * tipW, by + py * tipW);
-    ctx.lineTo(ex + px * buttW, ey + py * buttW);
-    ctx.lineTo(ex - px * buttW, ey - py * buttW);
-    ctx.lineTo(bx - px * tipW, by - py * tipW);
-    ctx.closePath();
-    ctx.fill();
-
-    // leather tip
-    ctx.fillStyle = '#2f6f9e';
-    ctx.beginPath();
-    ctx.arc(bx, by, 0.0034, 0, TAU);
-    ctx.fill();
   }
+  ctx.fillStyle = g2;
+  ctx.beginPath();
+  ctx.moveTo(bx + px * tipW, by + py * tipW);
+  ctx.lineTo(ex + px * buttW, ey + py * buttW);
+  ctx.lineTo(ex - px * buttW, ey - py * buttW);
+  ctx.lineTo(bx - px * tipW, by - py * tipW);
+  ctx.closePath();
+  ctx.fill();
+
+  // leather tip
+  ctx.fillStyle = '#2f6f9e';
+  ctx.beginPath();
+  ctx.arc(bx, by, 0.0034, 0, TAU);
+  ctx.fill();
+
+  ctx.restore();
 }
 
 function drawPlacement(ctx: CanvasRenderingContext2D, p: V2): void {

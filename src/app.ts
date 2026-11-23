@@ -45,6 +45,10 @@ export class App {
   private hover: { x: number; y: number } | null = null;
 
   private playFrames: Frame[] = [];
+  /** Where the other player is lining up, while they are on strike. */
+  private peerAim: { aim: number; power: number } | null = null;
+  private lastAimSent = 0;
+  private lastAim = { aim: 0, power: 0 };
   private playT = 0;
   /** Wall-clock ms at which the current replay started. */
   private playStart = 0;
@@ -467,8 +471,7 @@ export class App {
 
   private onServer(m: ServerMsg): void {
     switch (m.t) {
-      case 'hello': {
-        // Remember what this connection is called; the first one doubles as the
+      case 'hello': {        // Remember what this connection is called; the first one doubles as the
         // seat token until a room hands us our own.
         this.helloId = m.id;
         if (!this.token) this.token = m.id;
@@ -499,6 +502,7 @@ export class App {
         break;
       }
       case 'start': {
+        this.peerAim = null;
         this.el.setup.classList.add('hidden');
         this.el.gameover.classList.add('hidden');
         this.state = m.state;
@@ -510,7 +514,12 @@ export class App {
         this.toast(m.state.turn === this.side ? 'Your break.' : 'Opponent breaks.');
         break;
       }
+      case 'aim': {
+        this.peerAim = { aim: m.aim, power: m.power };
+        break;
+      }
       case 'shot': {
+        this.peerAim = null;
         // The server is authoritative, so take its state immediately and treat
         // the animation as decoration. Otherwise a hidden tab holds back the
         // real board, and a second shot would be re-simulated from a stale one.
@@ -855,7 +864,29 @@ export class App {
 
   // ---------------------------------------------------------------- frame
 
+  /**
+   * Tell the opponent where the cue is pointing, so they can watch you line up.
+   * Throttled and change-only: this is a courtesy, not game state, and it must
+   * never be the reason a shot feels laggy.
+   */
+  private sendAim(now: number): void {
+    if (this.mode !== 'online' || !this.net || !this.state) return;
+    if (this.state.turn !== this.side || this.state.over) return;
+    if (this.playFrames.length > 0 || this.placing) return;
+    if (now - this.lastAimSent < 90) return;
+    if (
+      Math.abs(this.aim - this.lastAim.aim) < 0.004 &&
+      Math.abs(this.power - this.lastAim.power) < 0.01
+    ) {
+      return;
+    }
+    this.lastAimSent = now;
+    this.lastAim = { aim: this.aim, power: this.power };
+    this.net.send({ t: 'aim', aim: this.aim, power: this.power });
+  }
+
   private loop(now: number): void {
+    this.sendAim(now);
     if (this.playFrames.length > 0) {
       // Wall clock, not accumulated frame deltas. A hidden tab stops getting
       // frames, and a paused animation must not hold the board - or the turn -
@@ -886,6 +917,7 @@ export class App {
       power: this.power,
       spin: this.spin.value,
       showAim: this.canShoot() || this.placing,
+      peerAim: this.mode === 'online' ? this.peerAim : null,
       placing: this.placing,
       hover: this.hover,
     };

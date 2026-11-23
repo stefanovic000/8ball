@@ -10,8 +10,8 @@ export const G = 9.81;
 
 /** Kinetic friction while the contact point is slipping. */
 export const MU_SLIDE = 0.2;
-/** Rolling resistance once the ball is in pure rolling. ~0.20 m/s^2 of decel. */
-export const MU_ROLL = 0.02;
+/** Rolling resistance once the ball is in pure rolling. ~0.15 m/s^2 of decel. */
+export const MU_ROLL = 0.015;
 /** Tangential friction between two balls. Drives throw and spin transfer. */
 export const MU_BALL = 0.06;
 /** Tangential friction on the cushion. Drives english off the rails. */

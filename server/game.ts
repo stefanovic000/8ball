@@ -273,6 +273,19 @@ export async function createGameServer(
         beginGame(room);
         break;
       }
+      case 'aim': {
+        // Best effort, and only the player on strike: it is a hint of where the
+        // cue is pointing, not game state, so a dropped update costs nothing.
+        const room = client.room;
+        if (!room || !room.state || room.state.over) return;
+        if (room.state.turn !== client.side) return;
+        const aim = Number(msg.aim);
+        const power = Number(msg.power);
+        if (!Number.isFinite(aim) || !Number.isFinite(power) || power < 0 || power > 1) return;
+        const peer = room.slots.find((c) => c !== null && c !== client) ?? null;
+        if (peer && !peer.gone) send(peer, { t: 'aim', side: client.side, aim, power });
+        break;
+      }
       case 'shot':
         if (client.room) handleShot(client.room, client, msg.shot);
         break;
