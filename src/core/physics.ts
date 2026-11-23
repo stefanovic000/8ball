@@ -342,7 +342,19 @@ function resolveBallBall(a: Ball, b: Ball, ev: SimEvent[], t: number): boolean {
   const vb = add3(v3(b.v.x, b.v.y, 0), cross3(b.w, cb));
   const ur = sub3(vb, va);
   const vn = dot3(ur, n3);
-  if (vn >= 0) return true;
+  if (vn >= 0) {
+    // Same trap as the cushion: overlapping balls were just pushed apart, but
+    // spin can make the contact point separate while the centres still close.
+    // Cancel that closing motion so they cannot be pinned against each other.
+    const closing = (a.v.x - b.v.x) * nx + (a.v.y - b.v.y) * ny;
+    if (closing > 0) {
+      a.v.x -= nx * closing * 0.5;
+      a.v.y -= ny * closing * 0.5;
+      b.v.x += nx * closing * 0.5;
+      b.v.y += ny * closing * 0.5;
+    }
+    return true;
+  }
 
   const k = 2 / BALL_M;
   const jn = (-(1 + E_BALL) * vn) / k;
@@ -398,7 +410,19 @@ function resolveCushion(b: Ball, c: Cushion, ev: SimEvent[], t: number): boolean
   const n3 = v3(c.nx, c.ny, 0);
   const u = add3(v3(b.v.x, b.v.y, 0), cross3(b.w, cp));
   const vn = dot3(u, n3);
-  if (vn >= 0) return true;
+  if (vn >= 0) {
+    // The contact point can be travelling away on spin alone while the centre
+    // still heads into the cushion. Position was corrected above, so without
+    // this the ball is pinned on the line: pushed out, walks straight back in,
+    // and the clock crawls a microsecond a step until the step cap ends the
+    // shot mid-roll.
+    const inward = b.v.x * c.nx + b.v.y * c.ny;
+    if (inward < 0) {
+      b.v.x -= c.nx * inward;
+      b.v.y -= c.ny * inward;
+    }
+    return true;
+  }
 
   const rn = cross3(cp, n3);
   const k = 1 / BALL_M + dot3(rn, rn) / BALL_I;
@@ -444,7 +468,15 @@ function resolveJaw(b: Ball, j: V2, ev: SimEvent[], t: number): boolean {
   const n3 = v3(nx, ny, 0);
   const u = add3(v3(b.v.x, b.v.y, 0), cross3(b.w, cp));
   const vn = dot3(u, n3);
-  if (vn >= 0) return true;
+  if (vn >= 0) {
+    // As with the cushion: a jaw must not be able to pin a spinning ball.
+    const inward = b.v.x * nx + b.v.y * ny;
+    if (inward < 0) {
+      b.v.x -= nx * inward;
+      b.v.y -= ny * inward;
+    }
+    return true;
+  }
 
   const k = 1 / BALL_M;
   const jn = (-(1 + E_RAIL) * vn) / k;

@@ -114,8 +114,23 @@ describe('simulation', () => {
     }
   });
 
-  it('is deterministic', () => {
-    const shot = { aim: 0.3, power: 0.7, spin: { x: 0.2, y: -0.1 } };
+  it('does not pin a hard spinning ball against a cushion', () => {
+    // Full power, full backspin, a hair-thin cut on the left ball. The cue ball
+    // reaches the left cushion with so much spin that the contact point is
+    // already travelling away, and before the fix it was pinned on the line:
+    // the position was corrected, it walked straight back in, and the shot
+    // crawled a microsecond a step until the step cap ended it mid-roll.
+    const balls = [makeBall(0, -0.5, 0), makeBall(1, 0, 2 * BALL_R - 0.0002)];
+    const res = shoot(balls, { aim: 2.47, power: 1, spin: { x: -0.5, y: -0.3 } });
+    expect(res.frames.length).toBeLessThan(4000);
+    expect(res.frames.at(-1)!.t).toBeGreaterThan(1);
+    for (const b of res.balls) {
+      expect(Math.hypot(b.v.x, b.v.y)).toBeLessThan(0.02);
+      expect(Number.isFinite(b.p.x)).toBe(true);
+    }
+  });
+
+  it('is deterministic', () => {    const shot = { aim: 0.3, power: 0.7, spin: { x: 0.2, y: -0.1 } };
     const a = shoot(newRack(), shot);
     const b = shoot(newRack(), shot);
     for (let i = 0; i < a.balls.length; i++) {
