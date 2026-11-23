@@ -573,6 +573,7 @@ h2 {
 }
 
 #name,
+#joinnm,
 #code {
   width: 100%;
   background: #ffffff0a;
@@ -583,7 +584,8 @@ h2 {
   outline: none;
 }
 
-#name {
+#name,
+#joinnm {
   font: 400 15px/1 var(--ui);
 }
 
@@ -594,6 +596,7 @@ h2 {
 }
 
 #name:focus,
+#joinnm:focus,
 #code:focus {
   border-color: var(--brass);
   background: #ffffff12;

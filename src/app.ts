@@ -546,7 +546,10 @@ export class App {
   }
 
   private readName(): string {
-    const el = document.getElementById('name') as HTMLInputElement | null;
+    // Each entry form has its own name box; read whichever one is on screen.
+    const host = document.getElementById('name') as HTMLInputElement | null;
+    const guest = document.getElementById('joinnm') as HTMLInputElement | null;
+    const el = host && host.offsetParent !== null ? host : guest;
     const v = (el?.value ?? '').trim().slice(0, 16);
     return v.length > 0 ? v : 'Player';
   }
