@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:release": "npm run build && node tools/release.mjs",
     "preview": "vite preview",
     "server": "tsx server/index.ts",
     "test": "vitest run",
@@ -20,6 +21,7 @@
     "@napi-rs/canvas": "^0.1.65",
     "@types/node": "^22.10.2",
     "@types/ws": "^8.5.13",
+    "esbuild": "^0.28.2",
     "playwright-core": "^1.65.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

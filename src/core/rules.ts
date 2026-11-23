@@ -61,6 +61,15 @@ export const ballsLeft = (balls: Ball[], g: Group): number =>
 
 export const headString = -HALF_L + TABLE_L / 4;
 
+/**
+ * Whether ball-in-hand placement is restricted to behind the head string.
+ *
+ * This is a property of the room's rules alone. It used to be tied to the break
+ * on the client, which meant the restriction only ever applied to the opening
+ * shot and an ordinary foul let the cue ball be placed anywhere.
+ */
+export const behindLineOnly = (rules: Rules): boolean => rules.ballInHand === 'behind';
+
 export function newGame(balls: Ball[]): GameState {
   return {
     balls,
@@ -124,6 +133,10 @@ export function judgeShot(
     if (cuePocketed) {
       out.foul = true;
       out.foulReason = 'scratch on the break';
+    } else if (!contact) {
+      // A break has to at least reach a ball, whichever ruleset is in play.
+      out.foul = true;
+      out.foulReason = 'no ball hit on the break';
     } else if (rules.ruleset === 'european' && objectPocketed.length === 0) {
       // Blackball asks more of a break than "something moved".
       const railed = new Set<number>();
@@ -262,4 +275,24 @@ export function isValidPlacement(
     if (Math.hypot(b.p.x - x, b.p.y - y) < BALL_R * 2 + 0.001) return false;
   }
   return true;
+}
+
+/**
+ * Where a potted 8 goes back in Practice: the foot spot if it is free,
+ * otherwise the nearest clear point along the long axis. Deterministic, so a
+ * repeated shot respots to the same place.
+ *
+ * The 8 must still be marked pocketed when this is called; the ball being
+ * respotted is skipped by `isValidPlacement` either way.
+ */
+export function respotPoint(balls: Ball[]): { x: number; y: number } {
+  const foot = { x: TABLE_L / 4, y: 0 };
+  if (isValidPlacement(balls, foot.x, foot.y, false)) return foot;
+  for (let i = 1; i <= 60; i++) {
+    for (const d of [0.02 * i, -0.02 * i]) {
+      const p = { x: foot.x + d, y: foot.y };
+      if (isValidPlacement(balls, p.x, p.y, false)) return p;
+    }
+  }
+  return foot;
 }

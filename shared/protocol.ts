@@ -28,12 +28,14 @@ export type RoomInfo = {
 export type ServerMsg =
   | { t: 'hello'; id: string }
   | { t: 'room'; room: RoomInfo }
-  | { t: 'start'; state: GameState }
+  | { t: 'start'; state: GameState; remaining?: number; holding?: boolean }
   | { t: 'shot'; by: Side; shot: Shot; state: WebState }
   | { t: 'state'; state: WebState }
   | { t: 'peer'; joined: boolean; name: string }
   | { t: 'aim'; side: Side; aim: number; power: number }
-  | { t: 'error'; message: string }
+  /** Timing update that does not replay the board. */
+  | { t: 'clock'; remaining: number; holding: boolean }
+  | { t: 'error'; message: string; code?: 'rejoin-failed' }
   | { t: 'bye' };
 
 /** GameState with balls as plain serialisable data. */

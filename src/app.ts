@@ -1,8 +1,10 @@
 import { newRack, shoot, type Ball, type Frame, type Shot } from './core/physics';
 import {
   DEFAULT_RULES,
+  behindLineOnly,
   isValidPlacement,
   newGame,
+  respotPoint,
   type GameState,
   type Rules,
   type Ruleset,
@@ -47,6 +49,18 @@ export class App {
   private playFrames: Frame[] = [];
   /** Where the other player is lining up, while they are on strike. */
   private peerAim: { aim: number; power: number } | null = null;
+  /** True while the other seat is away and the turn is frozen. */
+  private holding = false;
+  /** Set when the player leaves on purpose: no reconnect, no late messages. */
+  private abandoned = false;
+  /** Where focus was before the leave confirmation opened. */
+  private leaveReturn: HTMLElement | null = null;
+  /** Last known visibility of the in-game Leave button. */
+  private leaveShown = false;
+  /** The confirmation was dismissed by a room teardown, not by the player. */
+  private leaveWasOpen = false;
+  /** Last known menu visibility, for the body class that hides match chrome. */
+  private menuShown = false;
   private lastAimSent = 0;
   private lastAim = { aim: 0, power: 0 };
   private playT = 0;
@@ -82,7 +96,18 @@ export class App {
       'gtitle',
       'gsub',
       'status',
-      'mode-note',
+      'home',
+      'hostview',
+      'joinview',
+      'waiting',
+      'gohost',
+      'gojoin',
+      'gosolo',
+      'backfromhost',
+      'backfromjoin',
+      'closelobby',
+      'copycode',
+      'rulesummary',
       'spinlabel',
       'controls',
       'code',
@@ -90,6 +115,10 @@ export class App {
       'copylink',
       'joincode',
       'create',
+      'leavebtn',
+      'leave',
+      'stay',
+      'leavematch',
     ]) {
       const node = document.getElementById(id);
       if (node) this.el[id] = node;
@@ -128,15 +157,32 @@ export class App {
   }
 
   private wireSetup(): void {
-    const modes = document.getElementById('mode')!;
-    modes.addEventListener('click', (e) => {
-      const b = (e.target as HTMLElement).closest('button');
-      if (!b) return;
-      this.mode = (b.dataset.v as Mode) ?? 'practice';
-      for (const x of Array.from(modes.querySelectorAll('button'))) {
-        x.classList.toggle('on', x === b);
-      }
-      this.syncSetupVisibility();
+    // Three plain choices. Each one opens its own view; nothing else on the
+    // home screen decides between hosting, joining and playing alone.
+    document.getElementById('gohost')!.addEventListener('click', () => {
+      this.setMode('online');
+      this.showMenu('hostview');
+      (document.getElementById('name') as HTMLInputElement | null)?.focus();
+    });
+    document.getElementById('gojoin')!.addEventListener('click', () => {
+      this.setMode('online');
+      this.showMenu('joinview');
+      (document.getElementById('code') as HTMLInputElement | null)?.focus();
+    });
+    document.getElementById('gosolo')!.addEventListener('click', () => {
+      this.setMode('practice');
+      this.beginPractice();
+    });
+    document.getElementById('backfromhost')!.addEventListener('click', () => this.showMenu('home'));
+    document.getElementById('backfromjoin')!.addEventListener('click', () => this.showMenu('home'));
+
+    // Enter submits from either form, so a code can be typed and sent without
+    // reaching for the mouse.
+    (document.getElementById('code') as HTMLInputElement).addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.joinRoom();
+    });
+    (document.getElementById('name') as HTMLInputElement).addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.createRoom();
     });
 
     for (const id of ['ruleset', 'clock', 'called', 'bih']) {
@@ -148,29 +194,38 @@ export class App {
       });
     }
 
-    // One button, two jobs: host a room, or close the one you are in.
-    document.getElementById('create')!.addEventListener('click', () => {
-      if (this.roomCode) this.leaveLobby();
-      else this.createRoom();
-    });
+    document.getElementById('create')!.addEventListener('click', () => this.createRoom());
+    document.getElementById('closelobby')!.addEventListener('click', () => this.leaveLobby());
+    const settingsPanel = document.getElementById('settings')!;
     document.getElementById('opensettings')!.addEventListener('click', () => {
-      document.getElementById('settings')!.classList.remove('hidden');
+      settingsPanel.classList.remove('hidden');
     });
     document.getElementById('closesettings')!.addEventListener('click', () => {
-      document.getElementById('settings')!.classList.add('hidden');
-      this.updateRulesSummary();
+      this.closeSettings();
+    });    // Escape and a click on the dimmed backdrop close it the same way Done
+    // does. Clicks inside the panel are left alone. Escape must not reload the
+    // page or disturb the lobby behind it.
+    settingsPanel.addEventListener('click', (e) => {
+      if (e.target === settingsPanel) this.closeSettings();
     });
     document.getElementById('copylink')!.addEventListener('click', () => {
       const code = this.roomCode;
       if (!code) return;
       const link = `${location.origin}/?room=${code}`;
       void navigator.clipboard?.writeText(link).then(
-        () => this.toast('Link copied.'),
+        () => this.toast('Invite link copied.'),
         () => this.toast(link),
       );
     });
+    document.getElementById('copycode')!.addEventListener('click', () => {
+      const code = this.roomCode;
+      if (!code) return;
+      void navigator.clipboard?.writeText(code).then(
+        () => this.toast('Code copied.'),
+        () => this.toast(code),
+      );
+    });
     document.getElementById('joincode')!.addEventListener('click', () => this.joinRoom());
-    document.getElementById('start')!.addEventListener('click', () => this.start());
     document.getElementById('rotate')!.addEventListener('click', () => this.toggleRotate());
 
     document.getElementById('again')!.addEventListener('click', () => {
@@ -178,7 +233,20 @@ export class App {
       if (this.mode === 'practice') this.resetPractice();
       else this.net?.send({ t: 'rematch' });
     });
-    document.getElementById('tomenu')!.addEventListener('click', () => location.reload());
+    document.getElementById('tomenu')!.addEventListener('click', () => {
+      // Back to menu is the same exit as Leave match: it must drop the seat,
+      // not just reload and be put back in the same room by the stored token.
+      if (this.roomCode) this.leaveMatch();
+      else location.reload();
+    });
+
+    document.getElementById('leavebtn')!.addEventListener('click', () => this.openLeaveConfirm());
+    document.getElementById('stay')!.addEventListener('click', () => this.closeLeaveConfirm());
+    document.getElementById('leavematch')!.addEventListener('click', () => this.leaveMatch());
+    // A click on the dimmed backdrop is the safe choice too.
+    this.el.leave.addEventListener('click', (e) => {
+      if (e.target === this.el.leave) this.closeLeaveConfirm();
+    });
 
     const saved = localStorage.getItem(STORE_KEY);
     if (saved) {
@@ -196,27 +264,23 @@ export class App {
       }
     }
 
-    this.syncSetupVisibility();
+    this.showMenu('home');
     this.updateRulesSummary();
     this.restoreSeat();
     this.readInvite();
   }
 
-  private syncSetupVisibility(): void {
-    const online = this.mode === 'online';
-    document.getElementById('joinrow')!.style.display = online ? '' : 'none';
-    this.el['mode-note']!.textContent = online
-      ? 'Two players, one room. Same rules on both sides.'
-      : 'Always your turn. Free ball in hand. No rules, just the table.';
+  /** One menu, four views: the three entry choices and the waiting lobby. */
+  private showMenu(view: 'home' | 'hostview' | 'joinview' | 'waiting'): void {
+    for (const id of ['home', 'hostview', 'joinview', 'waiting'] as const) {
+      this.el[id]?.classList.toggle('hidden', id !== view);
+    }
+    this.el.setup.classList.remove('hidden');
   }
 
   private setMode(mode: Mode): void {
     this.mode = mode;
-    const box = document.getElementById('mode')!;
-    for (const b of Array.from(box.querySelectorAll('button'))) {
-      b.classList.toggle('on', (b as HTMLElement).dataset.v === mode);
-    }
-    this.syncSetupVisibility();
+    this.saveSettings();
   }
 
   /** A shared link carries the room code, so joining is one click. */
@@ -229,11 +293,78 @@ export class App {
     this.setMode('online');
     const input = document.getElementById('code') as HTMLInputElement | null;
     if (input) input.value = code;
-    this.setStatus(`Room ${code} — press Join.`);
+    this.showMenu('joinview');
+    this.setStatus(`Room ${code} is waiting. Press Join.`);
   }
 
   private saveSettings(): void {
     localStorage.setItem(STORE_KEY, JSON.stringify({ rules: this.rules, mode: this.mode }));
+  }
+
+  /** One close path, so Escape, the backdrop and Done cannot drift apart. */
+  private closeSettings(): void {
+    document.getElementById('settings')!.classList.add('hidden');
+    this.updateRulesSummary();
+  }
+
+  // ------------------------------------------------------------- leaving
+
+  /** The confirmation, with Stay focused so Enter and Escape both stay. */
+  private openLeaveConfirm(): void {
+    if (!this.roomCode) return;
+    this.leaveReturn = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    this.el.leave.classList.remove('hidden');
+    this.el.stay.focus();
+  }
+
+  private closeLeaveConfirm(toSetup = false): void {
+    if (this.el.leave.classList.contains('hidden')) return;
+    this.el.leave.classList.add('hidden');
+    const back = this.leaveReturn;
+    this.leaveReturn = null;
+    this.leaveWasOpen = false;
+    if (!toSetup && back && back.isConnected && !back.classList.contains('hidden')) {
+      back.focus();
+      return;
+    }
+    // The trigger is gone (the room ended underneath us): land somewhere usable.
+    if (!this.el.setup.classList.contains('hidden')) {
+      (document.getElementById('name') as HTMLInputElement | null)?.focus();
+    }
+  }
+
+  private leaveMatch(): void {
+    this.closeLeaveConfirm();
+    this.abandonSession();
+  }
+
+  /**
+   * Walks away from the room for good: tells the server when it can, then drops
+   * the socket, the seat and the board. Anything still in flight from that
+   * session is ignored, and nothing reconnects.
+   */
+  private abandonSession(): void {
+    this.abandoned = true;
+    this.holding = false;
+    if (this.reconnectTimer) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = 0;
+    }
+    this.reconnectAttempts = 0;
+
+    const net = this.net;
+    this.net = null;
+    if (net) {
+      // A no-op if it never opened; the room then retires on seat grace.
+      net.send({ t: 'leave' });
+      net.close();
+    }
+
+    this.clearRoom();
+    this.clockEnd = 0;
+    this.el.setup.classList.remove('hidden');
+    this.el.gameover.classList.add('hidden');
+    this.setStatus('Left the match.');
   }
 
   /** One line describing the match rules, shown on the setup screen. */
@@ -255,19 +386,6 @@ export class App {
     };
   }
 
-  private start(): void {
-    this.rules = this.readRules();
-    this.saveSettings();
-    if (this.mode === 'practice') {
-      this.beginPractice();
-    } else if (this.roomCode) {
-      // Already in a room: pressing Start must not look like the room failed.
-      this.setStatus(`Waiting for an opponent. Room code ${this.roomCode} — send it to them.`);
-    } else {
-      this.setStatus('Create a room, or join one with a code.');
-    }
-  }
-
   private setStatus(s: string): void {
     this.el.status!.textContent = s;
   }
@@ -275,6 +393,12 @@ export class App {
   // ------------------------------------------------------------ practice
 
   private beginPractice(): void {
+    // Practice and an online room cannot both be live. Leaving the room behind
+    // would keep a joinable lobby whose host is not looking at it.
+    if (this.roomCode) {
+      this.net?.send({ t: 'leave' });
+      this.clearRoom();
+    }
     this.el.setup.classList.add('hidden');
     this.resetPractice();
     this.clockEnd = 0;
@@ -300,6 +424,22 @@ export class App {
       this.power = SHOT_POWER;
     }
     this.state.balls = balls;
+
+    // Practice never ends, so the 8 always comes back - whether or not the cue
+    // was potted on the same shot. These used to be one branch with a return,
+    // so a scratch hid a potted 8 permanently.
+    const eight = balls.find((b) => b.id === 8)!;
+    if (eight.pocketed) {
+      const spot = respotPoint(balls);
+      eight.pocketed = false;
+      eight.p.x = spot.x;
+      eight.p.y = spot.y;
+      eight.v = { x: 0, y: 0 };
+      eight.w = { x: 0, y: 0, z: 0 };
+      eight.q = { x: 0, y: 0, z: 0, w: 1 };
+      this.toast('8 spotted.');
+    }
+
     const cue = balls.find((b) => b.id === 0)!;
     if (cue.pocketed) {
       cue.pocketed = false;
@@ -310,17 +450,6 @@ export class App {
       cue.q = { x: 0, y: 0, z: 0, w: 1 };
       this.placing = true;
       this.toast('Scratched. Click to place the cue ball.');
-      return;
-    }
-    // The 8 back on the table, so practice never ends.
-    const eight = balls.find((b) => b.id === 8)!;
-    if (eight.pocketed) {
-      eight.pocketed = false;
-      eight.p.x = 0.635;
-      eight.p.y = 0;
-      eight.v = { x: 0, y: 0 };
-      eight.w = { x: 0, y: 0, z: 0 };
-      this.toast('8 spotted.');
     }
   }
 
@@ -328,6 +457,8 @@ export class App {
 
   private ensureNet(): Net {
     if (!this.net) {
+      // A fresh connection, so whatever session was abandoned is over.
+      this.abandoned = false;
       this.net = new Net();
       this.net.onMessage = (m) => this.onServer(m);
       this.net.onClose = () => this.onDrop();
@@ -345,6 +476,8 @@ export class App {
   /** The socket went away. If a seat is involved, try to get back to it. */
   private onDrop(): void {
     this.net = null;
+    // Leaving closed the socket on purpose; there is nothing to go back to.
+    if (this.abandoned) return;
     if (this.roomCode && this.token) {
       this.setStatus('Connection lost. Reconnecting...');
       this.scheduleReconnect();
@@ -428,40 +561,80 @@ export class App {
   }
 
   /**
-   * While you are in a room the join box is pointless: there is nothing to
-   * join. Show the code where the box was and turn the button into a way out.
+   * While you are in a room the menu shows the waiting lobby: the code is the
+   * loudest thing on the screen, with the two copy buttons under it.
    */
   private showLobby(inRoom: boolean, code = ''): void {
-    this.el.code.classList.toggle('hidden', inRoom);
-    this.el.hosted.classList.toggle('hidden', !inRoom);
-    this.el.hosted.textContent = inRoom ? code : '';
-    this.el.joincode.classList.toggle('hidden', inRoom);
-    this.el.copylink.classList.toggle('hidden', !inRoom);
-    this.el.create.textContent = inRoom ? 'Close lobby' : 'Create room';
-    this.el.create.classList.toggle('primary', !inRoom);
+    this.el.hosted.textContent = inRoom ? code || this.roomCode || '----' : '';
+    this.showMenu(inRoom ? 'waiting' : 'home');
   }
 
   private leaveLobby(): void {
     this.net?.send({ t: 'leave' });
+    this.clearRoom();
+    this.setStatus('Left the room.');
+  }
+
+  /** Drops every trace of a room, locally. The caller decides what to say. */
+  private clearRoom(): void {
+    // A room that ends underneath the confirmation must not leave it floating
+    // in front of the setup screen.
+    if (!this.el.leave.classList.contains('hidden')) {
+      this.leaveWasOpen = true;
+      this.el.leave.classList.add('hidden');
+      this.leaveReturn = null;
+    }
     this.roomCode = null;
     this.token = null;
-    this.clearSeat();
     this.state = null;
     this.playFrames = [];
-    this.showLobby(false);
+    this.peerAim = null;
+    this.holding = false;
+    this.clearSeat();
     this.el.room.classList.add('hidden');
-    this.setStatus('Left the room.');
+    this.showLobby(false);
+  }
+
+  /** Lands focus somewhere usable when a teardown dismissed the confirmation. */
+  private landOnSetup(): void {
+    if (!this.leaveWasOpen) return;
+    this.leaveWasOpen = false;
+    (document.getElementById('name') as HTMLInputElement | null)?.focus();
+  }
+
+  /**
+   * A rejoin the server will never accept: the room is gone or the seat was
+   * handed on. Give up rather than sitting on a dead board and a saved seat.
+   */
+  private endSession(message: string): void {
+    if (this.reconnectTimer) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = 0;
+    }
+    this.reconnectAttempts = 0;
+    this.clearRoom();
+    this.el.setup.classList.remove('hidden');
+    this.el.gameover.classList.add('hidden');
+    this.setStatus(message);
+    this.toast(message);
+    this.landOnSetup();
   }
 
   private joinRoom(): void {
     this.rules = this.readRules();
     this.saveSettings();
     this.names[0] = this.readName();
-    const code = (document.getElementById('code') as HTMLInputElement).value
+    const input = document.getElementById('code') as HTMLInputElement;
+    // Case and stray spaces are the player's business, not the server's.
+    const code = input.value
       .trim()
-      .toUpperCase();
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 6);
+    input.value = code;
     if (!code) {
       this.setStatus('Enter a room code.');
+      input.focus();
       return;
     }
     this.ensureNet();
@@ -470,6 +643,8 @@ export class App {
   }
 
   private onServer(m: ServerMsg): void {
+    // A late message from a session we walked away from must not reopen it.
+    if (this.abandoned) return;
     switch (m.t) {
       case 'hello': {        // Remember what this connection is called; the first one doubles as the
         // seat token until a room hands us our own.
@@ -478,6 +653,7 @@ export class App {
         break;
       }
       case 'room': {
+        if (this.mode === 'practice') break;
         this.side = m.room.you;
         this.names = [m.room.names[0], m.room.names[1] ?? 'waiting'];
         this.rules = m.room.rules;
@@ -494,15 +670,17 @@ export class App {
         this.roomCode = m.room.code;
         this.saveSeat();
         this.showLobby(true, m.room.code);
-        this.setStatus(
-          m.room.names[1]
-            ? 'Opponent connected. Starting...'
-            : `Waiting for an opponent. Room code ${m.room.code} — send it to them.`,
-        );
+        // The lobby itself says what it is waiting for; only a joining opponent
+        // needs saying here.
+        this.setStatus(m.room.names[1] ? 'Opponent connected. Starting...' : '');
         break;
       }
       case 'start': {
+        // A room message can still be in flight when the host switches to
+        // Practice; it must not take the practice board over.
+        if (this.mode === 'practice') break;
         this.peerAim = null;
+        this.holding = m.holding ?? false;
         this.el.setup.classList.add('hidden');
         this.el.gameover.classList.add('hidden');
         this.state = m.state;
@@ -510,7 +688,23 @@ export class App {
         this.spin.set({ x: 0, y: 0 });
         this.power = m.state.onBreak && m.state.turn === this.side ? BREAK_POWER : SHOT_POWER;
         this.placing = m.state.ballInHand && m.state.turn === this.side;
-        this.resetClock();
+        // The server owns the clock. On a rejoin it says how much of the turn
+        // is left, so the countdown resumes rather than restarting.
+        if (this.holding) {
+          this.clockEnd = 0;
+          this.setStatus('Opponent disconnected. Waiting for them.');
+        } else if (
+          typeof m.remaining === 'number' &&
+          this.state.turn === this.side &&
+          !this.state.over
+        ) {
+          this.clockEnd = performance.now() + m.remaining;
+        } else {
+          this.resetClock();
+        }
+        // A rejoin into a finished match must look finished, with Rematch
+        // still on offer.
+        this.showResult(this.state);
         this.toast(m.state.turn === this.side ? 'Your break.' : 'Opponent breaks.');
         break;
       }
@@ -518,8 +712,28 @@ export class App {
         this.peerAim = { aim: m.aim, power: m.power };
         break;
       }
+      case 'clock': {
+        // A timing-only update: the connected player keeps their board and
+        // their aim, and only the hold state and countdown change.
+        this.holding = m.holding;
+        if (m.holding) {
+          // Whoever left was mid-aim at best; their cue should not stay on the
+          // table pointing at a turn nobody is taking.
+          this.peerAim = null;
+          this.clockEnd = 0;
+          this.setStatus('Opponent disconnected. Waiting for them.');
+          break;
+        }
+        // Only the player on strike has a clock to show. Without the turn check
+        // a reload of the shooter put a countdown on the waiting tab.
+        const mine = !!this.state && this.state.turn === this.side && !this.state.over;
+        this.clockEnd = mine && m.remaining > 0 ? performance.now() + m.remaining : 0;
+        this.setStatus('Opponent reconnected.');
+        break;
+      }
       case 'shot': {
         this.peerAim = null;
+        this.holding = false;
         // The server is authoritative, so take its state immediately and treat
         // the animation as decoration. Otherwise a hidden tab holds back the
         // real board, and a second shot would be re-simulated from a stale one.
@@ -545,23 +759,24 @@ export class App {
         break;
       }
       case 'error': {
+        // A rejected rejoin is terminal, whether or not a board is on screen:
+        // the room is gone, or the seat was handed on.
+        if (m.code === 'rejoin-failed') {
+          this.endSession(m.message);
+          break;
+        }
         this.setStatus(m.message);
         this.toast(m.message);
         break;
       }
       case 'bye': {
         // The room is gone on the server; put the setup screen back.
-        this.roomCode = null;
-        this.token = null;
-        this.clearSeat();
-        this.state = null;
-        this.playFrames = [];
-        this.showLobby(false);
-        this.el.room.classList.add('hidden');
+        this.clearRoom();
         this.el.setup.classList.remove('hidden');
         this.el.gameover.classList.add('hidden');
         this.setStatus('The other player left.');
         this.toast('The other player left.');
+        this.landOnSetup();
         break;
       }
       default:
@@ -573,6 +788,9 @@ export class App {
     if (this.state?.onBreak && this.state.turn === this.side && !s.onBreak) {
       this.power = SHOT_POWER;
     }
+    // A turn that changes without a shot - a timeout, or a referee call - means
+    // the aim we were last sent belongs to a turn that has ended.
+    if (this.state !== null && this.state.turn !== s.turn) this.peerAim = null;
     this.state = s;
     // Say what the referee decided: a foul reason, or the visits left.
     if (s.message !== this.lastMessage) {
@@ -581,12 +799,18 @@ export class App {
     }
     this.placing = s.ballInHand && s.turn === this.side;
     this.resetClock();
-    if (s.over) {
-      this.el.gtitle!.textContent =
-        s.over.winner === this.side ? 'You win' : 'You lose';
-      this.el.gsub!.textContent = s.over.reason;
-      this.el.gameover.classList.remove('hidden');
+    this.showResult(s);
+  }
+
+  /** The result dialog, shown for a live finish and for a rejoin into one. */
+  private showResult(s: GameState): void {
+    if (!s.over) {
+      this.el.gameover.classList.add('hidden');
+      return;
     }
+    this.el.gtitle!.textContent = s.over.winner === this.side ? 'You win' : 'You lose';
+    this.el.gsub!.textContent = s.over.reason;
+    this.el.gameover.classList.remove('hidden');
   }
 
   private resetClock(): void {
@@ -682,6 +906,43 @@ export class App {
     );
 
     window.addEventListener('keydown', (e) => {
+      const leaveOpen = !this.el.leave.classList.contains('hidden');
+      // Escape unwinds one layer at a time: the leave confirmation, then
+      // settings, then it opens the confirmation in an online match. Outside a
+      // room it keeps its existing meaning.
+      if (e.key === 'Escape') {
+        if (leaveOpen) {
+          e.preventDefault();
+          this.closeLeaveConfirm();
+          return;
+        }
+        const settings = document.getElementById('settings');
+        if (settings && !settings.classList.contains('hidden')) {
+          e.preventDefault();
+          this.closeSettings();
+          return;
+        }
+        if (this.roomCode) {
+          e.preventDefault();
+          this.openLeaveConfirm();
+          return;
+        }
+      }
+      // While the confirmation is up the game keys are inert: Space and Enter
+      // must press the focused dialog button, not shoot or change power.
+      if (leaveOpen) {
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          const buttons = [this.el.stay, this.el.leavematch];
+          const at = buttons.indexOf(document.activeElement as HTMLElement);
+          const step = e.shiftKey ? buttons.length - 1 : 1;
+          buttons[(at + step + buttons.length) % buttons.length].focus();
+          return;
+        }
+        if (e.key === ' ' || e.key === 'Enter') return;
+        e.preventDefault();
+        return;
+      }
       if (e.target instanceof HTMLInputElement) return;
       const fine = e.shiftKey ? 0.002 : 0.01;
       switch (e.key) {
@@ -725,10 +986,17 @@ export class App {
   private tryPlace(sx: number, sy: number): void {
     if (!this.state) return;
     const w = this.scene.screenToWorld(sx, sy);
-    const behindOnly =
-      this.mode === 'online' && this.rules.ballInHand === 'behind' && this.state.onBreak;
+    // The head string is the room's rule, not the break's. Practice has no head
+    // string at all, because there is no referee and no room.
+    const behindOnly = this.mode === 'online' && behindLineOnly(this.rules);
     if (!isValidPlacement(this.state.balls, w.x, w.y, behindOnly)) {
       this.toast('No room there.');
+      return;
+    }
+    if (this.mode === 'online') {
+      // Wait for the server's state before moving the ball or leaving placement
+      // mode: the server owns the table, and a rejected spot must not appear.
+      this.net?.send({ t: 'place', x: w.x, y: w.y });
       return;
     }
     const cue = this.cueBall();
@@ -740,10 +1008,6 @@ export class App {
     cue.pocketed = false;
     this.placing = false;
     this.hover = null;
-    if (this.mode === 'online') {
-      this.net?.send({ t: 'place', x: w.x, y: w.y });
-      this.resetClock();
-    }
   }
 
   private cueBall(): Ball | null {
@@ -753,6 +1017,8 @@ export class App {
   private canShoot(): boolean {
     if (!this.state || this.state.over) return false;
     if (this.playFrames.length > 0 || this.placing) return false;
+    // The turn is frozen while the other seat is away.
+    if (this.holding) return false;
     // A pocketed cue ball cannot be struck. Without this the shot went out with
     // nothing to simulate, so the board never moved.
     const cue = this.state.balls.find((b) => b.id === 0);
@@ -871,6 +1137,7 @@ export class App {
    */
   private sendAim(now: number): void {
     if (this.mode !== 'online' || !this.net || !this.state) return;
+    if (this.holding) return;
     if (this.state.turn !== this.side || this.state.over) return;
     if (this.playFrames.length > 0 || this.placing) return;
     if (now - this.lastAimSent < 90) return;
@@ -909,6 +1176,19 @@ export class App {
   }
 
   private draw(): void {
+    // The Leave control belongs to a live online session and nothing else. It
+    // stays put through replays, either turn, and a reconnect attempt.
+    const showLeave = !!this.roomCode;
+    if (showLeave !== this.leaveShown) {
+      this.leaveShown = showLeave;
+      this.el.leavebtn.classList.toggle('hidden', !showLeave);
+    }
+    // Match chrome stays out of the menu's way.
+    const menuOpen = !this.el.setup.classList.contains('hidden');
+    if (menuOpen !== this.menuShown) {
+      this.menuShown = menuOpen;
+      document.body.classList.toggle('menu', menuOpen);
+    }
     const balls = this.displayBalls();
     const view: ViewState = {
       balls,

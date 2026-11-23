@@ -3,11 +3,14 @@ import { newRack, type SimEvent } from '../src/core/physics';
 import {
   DEFAULT_RULES,
   applyOutcome,
+  isValidPlacement,
   judgeShot,
   newGame,
+  respotPoint,
   type GameState,
   type Group,
 } from '../src/core/rules';
+import { BALL_R, TABLE_L } from '../src/core/constants';
 
 const contact = (id: number, t = 0.1): SimEvent => ({
   t,
@@ -77,6 +80,51 @@ describe('european ruleset', () => {
     const miss = judgeShot(s, [contact(1), rail(1)], DEFAULT_RULES);
     applyOutcome(s, miss, s.balls);
     expect(s.turn).toBe(0);
+  });
+});
+
+describe('breaks and respot', () => {
+  const breakState = () => {
+    const s = newGame(newRack());
+    s.onBreak = true;
+    return s;
+  };
+
+  it('fouls an american break that hits nothing', () => {
+    const out = judgeShot(breakState(), [], { ...DEFAULT_RULES, ruleset: 'american' });
+    expect(out.foul).toBe(true);
+    expect(out.foulReason).toMatch(/no ball hit/);
+  });
+
+  it('still lets an american break off with contact and no pot', () => {
+    const out = judgeShot(breakState(), [contact(1), rail(1)], {
+      ...DEFAULT_RULES,
+      ruleset: 'american',
+    });
+    expect(out.foul).toBe(false);
+  });
+
+  it('res pots the 8 on the foot spot when it is free', () => {
+    const balls = newRack();
+    // The rack's apex sits on the foot spot, so clear the table first.
+    for (const b of balls) if (b.id !== 0) b.pocketed = true;
+    const spot = respotPoint(balls);
+    expect(spot.x).toBeCloseTo(TABLE_L / 4, 6);
+    expect(spot.y).toBeCloseTo(0, 6);
+    expect(isValidPlacement(balls, spot.x, spot.y, false)).toBe(true);
+  });
+
+  it('finds a clear respot when the foot spot is taken', () => {
+    const balls = newRack();
+    for (const b of balls) if (b.id !== 0) b.pocketed = true;
+    const blocker = balls.find((b) => b.id === 1)!;
+    blocker.pocketed = false;
+    blocker.p = { x: TABLE_L / 4, y: 0 };
+    const spot = respotPoint(balls);
+    expect(Math.hypot(spot.x - blocker.p.x, spot.y - blocker.p.y)).toBeGreaterThanOrEqual(
+      BALL_R * 2,
+    );
+    expect(isValidPlacement(balls, spot.x, spot.y, false)).toBe(true);
   });
 });
 

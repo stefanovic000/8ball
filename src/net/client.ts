@@ -34,4 +34,19 @@ export class Net {
     if (this.ws.readyState === WebSocket.OPEN) this.ws.send(message);
     else if (this.ws.readyState === WebSocket.CONNECTING) this.queued.push(message);
   }
+
+  /** Open enough to talk to the server right now. */
+  get isOpen(): boolean {
+    return this.ws.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Closes on purpose, without firing `onClose`. Leaving a match is not a drop
+   * and must not start the reconnect loop.
+   */
+  close(): void {
+    this.queued.length = 0;
+    this.ws.onclose = null;
+    this.ws.close();
+  }
 }

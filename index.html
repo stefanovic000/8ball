@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>8ball</title>
-    <meta name="theme-color" content="#0b0f0e" />
+    <meta name="theme-color" content="#0b2a1f" />
     <meta
       name="description"
       content="Top-down 8-ball pool with a from-scratch physics engine. European blackball rules, real spin and squirt."
@@ -25,6 +25,8 @@
 
       <div id="topbar">
         <div id="players"></div>
+        <div id="crest" class="ball small" aria-hidden="true"><span>8</span></div>
+        <div id="hint" class="hidden"></div>
         <div id="room" class="hidden"></div>
       </div>
 
@@ -35,9 +37,9 @@
             <path d="M3 8a10 10 0 0 1 5-4M21 16a10 10 0 0 1-5 4" />
           </svg>
         </button>
+        <button id="leavebtn" class="hidden">Leave match</button>
       </div>
 
-      <div id="hint" class="hidden"></div>
       <div id="toast" class="hidden"></div>
 
       <div id="power" role="slider" aria-label="Shot power" aria-valuemin="0" aria-valuemax="100" tabindex="0">
@@ -54,47 +56,60 @@
       </div>
     </div>
 
-    <!-- Setup screen -->
-    <div id="setup" class="screen">
+    <!-- Club menu -->
+    <div id="setup" class="screen menu-screen">
       <div class="panel">
+        <div class="ball" aria-hidden="true"><span>8</span></div>
         <h1>8<span>ball</span></h1>
+        <p class="tagline">Pool, written from scratch.</p>
 
-        <div class="group">
-          <label>Name</label>
-          <div class="row">
-            <input id="name" placeholder="Your name" maxlength="16" autocomplete="off" spellcheck="false" />
-          </div>
+        <div id="home" class="view">
+          <button id="gohost" class="choice">
+            <b>Create room</b><small>Host a table and share the code</small>
+          </button>
+          <button id="gojoin" class="choice">
+            <b>Join with a code</b><small>Four characters from your opponent</small>
+          </button>
+          <button id="gosolo" class="choice">
+            <b>Solo practice</b><small>Free table, free ball in hand</small>
+          </button>
         </div>
 
-        <div class="group">
-          <label>Mode</label>
-          <div class="choices" id="mode">
-            <button data-v="practice">Practice</button>
-            <button data-v="online" class="on">Online</button>
-          </div>
-          <p class="note" id="mode-note">Always your turn. Free ball in hand.</p>
-        </div>
-
-        <div class="group">
-          <label>Match settings</label>
-          <div class="row">
+        <div id="hostview" class="view hidden">
+          <h2>Host a table</h2>
+          <label class="field">
+            <span>Your name</span>
+            <input id="name" placeholder="Player" maxlength="16" autocomplete="off" spellcheck="false" />
+          </label>
+          <div class="ruleline">
             <span id="rulesummary">European · 30s clock · behind line</span>
-            <button id="opensettings">Change</button>
+            <button id="opensettings" class="link">Change</button>
           </div>
+          <button id="create" class="primary wide">Create room</button>
+          <button id="backfromhost" class="link wide">Back</button>
         </div>
 
-        <div class="group" id="joinrow">
-          <label>Room</label>
-          <div class="row">
+        <div id="joinview" class="view hidden">
+          <h2>Join a table</h2>
+          <label class="field">
+            <span>Room code</span>
             <input id="code" placeholder="CODE" maxlength="6" autocomplete="off" spellcheck="false" />
-            <span id="hosted" class="hidden"></span>
-            <button id="copylink" class="hidden">Copy link</button>
-            <button id="joincode">Join</button>
-            <button id="create" class="primary">Create room</button>
-          </div>
+          </label>
+          <button id="joincode" class="primary wide">Join</button>
+          <button id="backfromjoin" class="link wide">Back</button>
         </div>
 
-        <button id="start" class="primary wide">Start</button>
+        <div id="waiting" class="view hidden">
+          <h2>Waiting for an opponent</h2>
+          <p class="note">Give them the code, or send the invite link.</p>
+          <div id="hosted" class="code">----</div>
+          <div class="pair">
+            <button id="copycode">Copy code</button>
+            <button id="copylink">Copy invite link</button>
+          </div>
+          <button id="closelobby" class="link wide">Close lobby</button>
+        </div>
+
         <p class="note dim" id="status"></p>
       </div>
     </div>
@@ -104,7 +119,16 @@
         <h2 id="gtitle">Game over</h2>
         <p id="gsub" class="note"></p>
         <button id="again" class="primary wide">Play again</button>
-        <button id="tomenu" class="wide">Back to menu</button>
+        <button id="tomenu" class="link wide">Back to menu</button>
+      </div>
+    </div>
+
+    <div id="leave" class="screen hidden" role="dialog" aria-modal="true" aria-labelledby="leavetitle">
+      <div class="panel narrow">
+        <h2 id="leavetitle">Leave the match?</h2>
+        <p class="note">Your opponent will be told the match has ended.</p>
+        <button id="stay" class="primary wide">Stay</button>
+        <button id="leavematch" class="link wide">Leave match</button>
       </div>
     </div>
 

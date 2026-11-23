@@ -20,10 +20,24 @@ Two files live outside, because that is where the system wants them:
 
 ## Build and copy
 
+One command produces all three artefacts, so the client and the server can never
+be a build apart:
+
 ```bash
-npm run build
-npx esbuild server/index.ts --bundle --platform=node --format=esm \
-  --target=node18 --external:ws --outfile=build/server.mjs
+npm run build:release
+```
+
+It writes:
+
+```
+dist/                 built client
+build/server.mjs      the whole server, one bundled file
+build/package.json    its runtime dependency (ws), generated from this project
+```
+
+Then copy them:
+
+```bash
 scp -r dist sfu:/home/ubuntu/8ball/
 scp build/server.mjs build/package.json sfu:/home/ubuntu/8ball/
 ssh sfu 'cd /home/ubuntu/8ball && npm install --omit=dev'

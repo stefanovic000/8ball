@@ -26,10 +26,8 @@ await page.waitForSelector('#setup', { state: 'visible' });
 await page.waitForTimeout(300);
 await page.screenshot({ path: join(OUT, 'ui-setup.png') });
 
-// Online is the default now, so pick Practice explicitly before starting.
-await page.click('#mode button[data-v="practice"]');
-await page.waitForTimeout(120);
-await page.click('#start');
+// Solo practice is its own entry choice now; no mode switch, no Start button.
+await page.click('#gosolo');
 await page.waitForTimeout(600);
 await page.screenshot({ path: join(OUT, 'ui-table.png') });
 

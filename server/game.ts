@@ -6,7 +6,16 @@ import { extname, join, normalize } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import { newRack, shoot } from '../src/core/physics';
-import { applyOutcome, judgeShot, newGame, type GameState, type Rules, type Side } from '../src/core/rules';
+import {
+  applyOutcome,
+  behindLineOnly,
+  isValidPlacement,
+  judgeShot,
+  newGame,
+  type GameState,
+  type Rules,
+  type Side,
+} from '../src/core/rules';
 import type { ClientMsg, ServerMsg } from '../shared/protocol';
 
 export type GameServer = {
@@ -35,9 +44,52 @@ type Room = {
   slots: [Client | null, Client | null];
   /** Epoch ms at which the current shot clock runs out, 0 when idle. */
   deadline: number;
+  /**
+   * Milliseconds that were left when the player on strike lost their socket.
+   * Rejoin resumes from this instead of granting a fresh period.
+   */
+  paused: number;
+  /** True while a seat is away: the turn is frozen until both are back. */
+  holding: boolean;
 };
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/**
+ * Whether the player on strike has run out of time. A deadline of 0 means the
+ * clock is off, which is not the same as "expired long ago".
+ *
+ * The sweep and a client's timeout message both decide with this, so the two
+ * cannot disagree about whether a turn is late.
+ */
+export function turnExpired(deadline: number, now: number): boolean {
+  return deadline > 0 && now > deadline;
+}
+
+/**
+ * What the deadline should be when a held seat comes back.
+ *
+ * Three cases that look alike but are not: a clock that was switched off stays
+ * off; a turn that was paused resumes with exactly what it had left; and a turn
+ * that had already run out before the seat was held returns `null`, meaning it
+ * should expire rather than be handed a fresh period.
+ */
+export function resumeDeadline(clockOn: boolean, paused: number, now: number): number | null {
+  if (!clockOn) return 0;
+  if (paused > 0) return now + paused;
+  return null;
+}
+
+/**
+ * Inbound fields are checked for the primitive type they are used as. Nested
+ * objects and arrays survive `JSON.parse` and coerce to nonsense - `Number({})`
+ * is NaN, `String({})` is "[object Object]" - so a value is only read once it
+ * is known to be the shape the handler expects.
+ */
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isStr = (v: unknown): v is string => typeof v === 'string';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -52,6 +104,8 @@ const MIME: Record<string, string> = {
 export async function createGameServer(
   port = 8787,
   host?: string,
+  /** Injectable so a test can move the clock without waiting. */
+  now: () => number = Date.now,
 ): Promise<GameServer> {
   const rooms = new Map<string, Room>();
   const dist = join(process.cwd(), 'dist');
@@ -82,12 +136,12 @@ export async function createGameServer(
   }
 
   function sanitiseRules(raw: unknown): Rules {
-    const r = (raw ?? {}) as Partial<Rules>;
-    const clock = Number(r.shotClock);
+    const r = isPlainObject(raw) ? raw : {};
+    const clock = isNum(r.shotClock) ? r.shotClock : 30;
     return {
       ruleset: r.ruleset === 'american' ? 'american' : 'european',
       shotClock: [0, 20, 30, 45].includes(clock) ? clock : 30,
-      calledPockets: Boolean(r.calledPockets),
+      calledPockets: typeof r.calledPockets === 'boolean' ? r.calledPockets : false,
       ballInHand: r.ballInHand === 'behind' ? 'behind' : 'anywhere',
     };
   }
@@ -103,11 +157,12 @@ export async function createGameServer(
   }
 
   function armClock(room: Room): void {
+    room.paused = 0;
     if (!room.state || room.state.over || room.rules.shotClock <= 0) {
       room.deadline = 0;
       return;
     }
-    room.deadline = Date.now() + room.rules.shotClock * 1000;
+    room.deadline = now() + room.rules.shotClock * 1000;
   }
 
   function pushState(room: Room): void {
@@ -124,6 +179,8 @@ export async function createGameServer(
   function foul(room: Room, reason: string): void {
     const st = room.state;
     if (!st) return;
+    // A finished match has nothing left to adjudicate.
+    if (st.over) return;
     st.turn = (1 - st.turn) as Side;
     st.ballInHand = true;
     st.message = reason;
@@ -139,17 +196,57 @@ export async function createGameServer(
       send(client, { t: 'error', message: 'Not your turn.' });
       return;
     }
+    // Ball in hand is pending: the cue ball is not where it will be struck from.
+    if (st.ballInHand) {
+      send(client, { t: 'error', message: 'Place the cue ball first.' });
+      return;
+    }
+    // The turn is frozen while the other seat is away.
+    if (room.holding) {
+      send(client, { t: 'error', message: 'Waiting for the other player.' });
+      return;
+    }
+    // A shot can land between the deadline and the next sweep tick. Expire the
+    // turn here and drop the shot, so being late costs the turn rather than
+    // sneaking one in.
+    if (turnExpired(room.deadline, now())) {
+      foul(room, 'shot clock expired');
+      return;
+    }
 
-    const s = shot as { aim?: number; power?: number; spin?: { x?: number; y?: number } };
-    const aim = Number(s?.aim);
-    const power = Number(s?.power);
-    const sx = Number(s?.spin?.x ?? 0);
-    const sy = Number(s?.spin?.y ?? 0);
-
-    if (!Number.isFinite(aim) || !Number.isFinite(power) || power < 0 || power > 1) {
+    const s = shot as { aim?: unknown; power?: unknown; spin?: unknown } | null;
+    if (!isPlainObject(s)) {
       send(client, { t: 'error', message: 'Bad shot.' });
       return;
     }
+    if (!isNum(s.aim) || !isNum(s.power) || s.power < 0 || s.power > 1) {
+      send(client, { t: 'error', message: 'Bad shot.' });
+      return;
+    }
+    let sx = 0;
+    let sy = 0;
+    if (s.spin !== undefined) {
+      if (!isPlainObject(s.spin)) {
+        send(client, { t: 'error', message: 'Bad shot.' });
+        return;
+      }
+      if (s.spin.x !== undefined) {
+        if (!isNum(s.spin.x)) {
+          send(client, { t: 'error', message: 'Bad shot.' });
+          return;
+        }
+        sx = s.spin.x;
+      }
+      if (s.spin.y !== undefined) {
+        if (!isNum(s.spin.y)) {
+          send(client, { t: 'error', message: 'Bad shot.' });
+          return;
+        }
+        sy = s.spin.y;
+      }
+    }
+    const aim = s.aim;
+    const power = s.power;
     if (Math.hypot(sx, sy) > 0.5001) {
       send(client, { t: 'error', message: 'That much spin would miscue.' });
       return;
@@ -184,13 +281,22 @@ export async function createGameServer(
     const st = room.state;
     if (!st || st.over) return;
     if (st.turn !== client.side || !st.ballInHand) return;
-    const px = Number(x);
-    const py = Number(y);
-    if (!Number.isFinite(px) || !Number.isFinite(py)) return;
-    if (Math.abs(px) > 1.24 || Math.abs(py) > 0.605) return;
-    for (const b of st.balls) {
-      if (b.id === 0 || b.pocketed) continue;
-      if (Math.hypot(b.p.x - px, b.p.y - py) < 0.058) return;
+    if (!isNum(x) || !isNum(y)) return;
+    if (room.holding) {
+      send(client, { t: 'error', message: 'Waiting for the other player.' });
+      return;
+    }
+    const px = x;
+    const py = y;
+    // A placement that lands after the deadline is a late turn, same as a shot.
+    if (turnExpired(room.deadline, now())) {
+      foul(room, 'shot clock expired');
+      return;
+    }
+    // Same geometry and head-string policy as the client, from one place.
+    if (!isValidPlacement(st.balls, px, py, behindLineOnly(room.rules))) {
+      send(client, { t: 'error', message: 'That spot is not allowed.' });
+      return;
     }
     const cue = st.balls.find((b) => b.id === 0);
     if (!cue) return;
@@ -225,12 +331,19 @@ export async function createGameServer(
   }
 
   function onMessage(client: Client, raw: string): void {
-    let msg: ClientMsg;
+    let parsed: unknown;
     try {
-      msg = JSON.parse(raw) as ClientMsg;
+      parsed = JSON.parse(raw);
     } catch {
       return;
     }
+    // The dispatcher below assumes an object with a message type. A bare
+    // string, number, null or array parses fine and would throw or fall
+    // through here, so the envelope is checked before anything is read.
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return;
+    const envelope = parsed as { t?: unknown };
+    if (typeof envelope.t !== 'string') return;
+    const msg = parsed as ClientMsg;
 
     switch (msg.t) {
       case 'create': {
@@ -241,8 +354,10 @@ export async function createGameServer(
           state: null,
           slots: [client, null],
           deadline: 0,
+          paused: 0,
+          holding: false,
         };
-        client.name = sanitiseName(msg.name, 'Player 1');
+        client.name = sanitiseName(isStr(msg.name) ? msg.name : undefined, 'Player 1');
         client.side = 0;
         client.room = room;
         rooms.set(room.code, room);
@@ -254,7 +369,7 @@ export async function createGameServer(
           send(client, { t: 'error', message: 'You are already in a room.' });
           return;
         }
-        const room = rooms.get(String(msg.code ?? '').toUpperCase());
+        const room = rooms.get(isStr(msg.code) ? msg.code.toUpperCase() : '');
         if (!room) {
           send(client, { t: 'error', message: 'No room with that code.' });
           return;
@@ -263,7 +378,7 @@ export async function createGameServer(
           send(client, { t: 'error', message: 'That room is full.' });
           return;
         }
-        client.name = sanitiseName(msg.name, 'Player 2');
+        client.name = sanitiseName(isStr(msg.name) ? msg.name : undefined, 'Player 2');
         client.side = 1;
         client.room = room;
         room.slots[1] = client;
@@ -279,9 +394,9 @@ export async function createGameServer(
         const room = client.room;
         if (!room || !room.state || room.state.over) return;
         if (room.state.turn !== client.side) return;
-        const aim = Number(msg.aim);
-        const power = Number(msg.power);
-        if (!Number.isFinite(aim) || !Number.isFinite(power) || power < 0 || power > 1) return;
+        const aim = msg.aim;
+        const power = msg.power;
+        if (!isNum(aim) || !isNum(power) || power < 0 || power > 1) return;
         const peer = room.slots.find((c) => c !== null && c !== client) ?? null;
         if (peer && !peer.gone) send(peer, { t: 'aim', side: client.side, aim, power });
         break;
@@ -296,12 +411,23 @@ export async function createGameServer(
         const room = client.room;
         if (!room || !room.state || room.state.over) return;
         if (room.state.turn !== client.side) return;
+        // Only honour it when the server's own clock says the turn is late.
+        // Anything else - the clock is off, or the client is early - is a
+        // request to skip someone else's turn and is ignored.
+        if (!turnExpired(room.deadline, now())) return;
+        // foul() re-arms the clock for the new player, so a repeat cannot
+        // expire the same turn twice, and the turn check above stops it
+        // applying to a turn that has already moved on.
         foul(room, 'shot clock expired');
         break;
       }
       case 'rematch': {
         const room = client.room;
         if (!room || !room.slots[0] || !room.slots[1]) return;
+        if (room.slots[0].gone || room.slots[1].gone) return;
+        // Only after the match has actually ended, and only with both players
+        // still connected. Otherwise "rematch" is a way to wipe a live game.
+        if (!room.state || !room.state.over) return;
         beginGame(room);
         break;
       }
@@ -310,14 +436,19 @@ export async function createGameServer(
         break;
       case 'rejoin': {
         // A reloaded tab comes back with the id it was given on connect.
-        const room = rooms.get(String(msg.code ?? '').toUpperCase());
+        const room = rooms.get(isStr(msg.code) ? msg.code.toUpperCase() : '');
         if (!room) {
-          send(client, { t: 'error', message: 'That room is gone.' });
+          send(client, { t: 'error', message: 'That room is gone.', code: 'rejoin-failed' });
           break;
         }
-        const idx = room.slots.findIndex((c) => c !== null && c.id === msg.token);
+        const token = isStr(msg.token) ? msg.token : '';
+        const idx = room.slots.findIndex((c) => c !== null && c.id === token);
         if (idx < 0) {
-          send(client, { t: 'error', message: 'That seat is no longer held.' });
+          send(client, {
+            t: 'error',
+            message: 'That seat is no longer held.',
+            code: 'rejoin-failed',
+          });
           break;
         }
         const old = room.slots[idx]!;
@@ -328,11 +459,41 @@ export async function createGameServer(
         old.room = null;
         old.dropTimer = undefined;
         room.slots[idx] = client;
-        armClock(room);
-        send(client, { t: 'room', room: roomInfo(room, client.side) });
-        if (room.state) send(client, { t: 'start', state: room.state });
         const peer = room.slots[1 - idx];
-        if (peer && !peer.gone) {
+        const bothHere = !!peer && !peer.gone;
+        // Resume only a room that was actually held, and only once every seat
+        // is back. A disabled clock stays off, a paused turn resumes with what
+        // was left, and a turn that had already run out expires once.
+        if (bothHere && room.holding) {
+          room.holding = false;
+          // A completed match keeps its result: there is no clock to resume and
+          // no turn to expire, so rejoining must not overwrite either.
+          if (room.state?.over) {
+            room.deadline = 0;
+            room.paused = 0;
+          } else {
+            const left = room.paused;
+            room.paused = 0;
+            const next = resumeDeadline(room.rules.shotClock > 0, left, now());
+            if (next === null) foul(room, 'shot clock expired');
+            else room.deadline = next;
+          }
+        }
+        const remaining = room.deadline > 0 ? Math.max(0, room.deadline - now()) : 0;
+
+        send(client, { t: 'room', room: roomInfo(room, client.side) });
+        if (room.state) {
+          send(client, {
+            t: 'start',
+            state: room.state,
+            remaining,
+            holding: room.holding,
+          });
+        }
+        if (bothHere && peer) {
+          // The connected player already has the board; they only need the
+          // timing, not a fresh start that would reset their aim.
+          send(peer, { t: 'clock', remaining, holding: false });
           send(peer, { t: 'peer', joined: true, name: client.name });
           send(peer, { t: 'error', message: 'Opponent reconnected.' });
         }
@@ -390,10 +551,18 @@ export async function createGameServer(
       const room = client.room;
       if (!room) return;
       client.gone = true;
-      // Do not run their shot clock down while they are reconnecting.
+      // Freeze the turn on the first seat that leaves and remember what was
+      // left, so rejoining resumes it instead of buying a fresh period. A
+      // second disconnect must not overwrite that: the deadline is already 0
+      // by then, and the pause has to survive until both seats are back.
+      if (!room.holding) {
+        room.holding = true;
+        room.paused = room.deadline > 0 ? Math.max(0, room.deadline - now()) : 0;
+      }
       room.deadline = 0;
       const peer = room.slots.find((c) => c !== null && c !== client) ?? null;
       if (peer && !peer.gone) {
+        send(peer, { t: 'clock', remaining: room.paused, holding: true });
         send(peer, { t: 'error', message: 'Opponent disconnected. Holding their seat.' });
       }
       client.dropTimer = setTimeout(() => dropClient(client), GRACE_MS);
@@ -405,10 +574,10 @@ export async function createGameServer(
 
   // One clock for the whole server, not one per room.
   const timer = setInterval(() => {
-    const now = Date.now();
+    const at = now();
     for (const room of rooms.values()) {
       if (!room.state || room.state.over) continue;
-      if (room.deadline > 0 && now > room.deadline) foul(room, 'shot clock expired');
+      if (turnExpired(room.deadline, at)) foul(room, 'shot clock expired');
     }
   }, 1000);
 
